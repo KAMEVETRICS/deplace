@@ -1,0 +1,18 @@
+[package]
+name = "bounty-board"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+description = "Bounty board state machine and audit trail for Concordium (Exclusive and Contest bounties, escrowed or not funded)"
+
+[dependencies]
+concordium-std = "11.0"
+
+[dev-dependencies]
+concordium-smart-contract-testing = "5.0"
+ed25519-dalek = "2"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
