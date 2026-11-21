@@ -159,6 +159,335 @@ fn cancel(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
     Ok(())
 }
 
+fn ensure_operator(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<()> {
+    ensure!(sender_account(ctx)? == host.state().operator, Error::Unauthorized);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_work(
+    ctx: &ReceiveContext,
+    host: &Host<State>,
+    crypto: &CryptoPrimitives,
+    kind: WorkKind,
+    id: u64,
+    worker: AccountAddress,
+    agent: Option<u64>,
+    expiry: Timestamp,
+    signature: SignatureEd25519,
+) -> ContractResult<()> {
+    ensure!(now(ctx) <= expiry, Error::AttestationExpired);
+    let msg = work_message(kind, &WorkAttestation { contract: ctx.self_address(), bounty_id: id, worker, agent, expiry });
+    ensure!(crypto.verify_ed25519_signature(host.state().attestor, signature, &msg), Error::BadSignature);
+    Ok(())
+}
+
+/// After a rejection the worker may resubmit until the later of the deadline and one
+/// review window after the rejection, so a late rejection cannot run out the clock.
+fn resubmit_until(b: &Bounty, review_window_ms: u64) -> Timestamp {
+    match b.last_rejected_at {
+        Some(r) => {
+            let grace = plus(r, review_window_ms);
+            if grace > b.deadline { grace } else { b.deadline }
+        }
+        None => b.deadline,
+    }
+}
+
+fn entry_worker(host: &Host<State>, id: u64, entry_id: u32) -> ContractResult<AccountAddress> {
+    host.state().entries.get(&(id, entry_id)).map(|e| e.worker).ok_or(Error::NotFound)
+}
+
+/// Equal shares of the reward for every entry; the remainder goes to the earliest entry.
+fn split_shares(host: &Host<State>, b: &Bounty) -> ContractResult<Vec<SplitShare>> {
+    let n = b.entry_count;
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let base = b.reward / u64::from(n);
+    let rest = b.reward % u64::from(n);
+    let mut shares = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        let to = entry_worker(host, b.id, i)?;
+        shares.push(SplitShare { to, amount: if i == 0 { base + rest } else { base } });
+    }
+    Ok(shares)
+}
+
+// --- funding -----------------------------------------------------------------
+
+/// The operator saw an exact funding transfer (memo `fund:<id>`) arrive in escrow.
+#[receive(contract = "bounty_board", name = "confirm_funding", parameter = "ConfirmFundingParams", error = "Error", mutable, enable_logger)]
+fn confirm_funding(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    ensure_operator(ctx, host)?;
+    let p: ConfirmFundingParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(b.funding == Funding::NotFunded, Error::WrongStatus);
+    ensure!(matches!(b.status, Status::Open | Status::Claimed { .. } | Status::Submitted { .. }), Error::WrongStatus);
+    b.funding = Funding::Escrowed { funding_tx: p.tx };
+    store(host, b);
+    logger.log(&Event::Funded { id: p.id, tx: p.tx })?;
+    Ok(())
+}
+
+// --- exclusive flow ----------------------------------------------------------
+
+#[receive(contract = "bounty_board", name = "claim", parameter = "ClaimParams", error = "Error", mutable, enable_logger, crypto_primitives)]
+fn claim(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypto: &CryptoPrimitives) -> ContractResult<()> {
+    let worker = sender_account(ctx)?;
+    let p: ClaimParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(b.kind == Kind::Exclusive, Error::WrongKind);
+    ensure!(b.status == Status::Open, Error::WrongStatus);
+    ensure!(now(ctx) < b.deadline, Error::DeadlinePassed);
+    ensure!(worker != b.poster, Error::InvalidParams);
+    verify_work(ctx, host, crypto, WorkKind::Claim, p.id, worker, p.agent, p.attestation_expiry, p.signature)?;
+    b.status = Status::Claimed { worker, agent: p.agent };
+    store(host, b);
+    logger.log(&Event::Claimed { id: p.id, worker, agent: p.agent })?;
+    Ok(())
+}
+
+#[receive(contract = "bounty_board", name = "submit", parameter = "SubmitParams", error = "Error", mutable, enable_logger)]
+fn submit(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let sender = sender_account(ctx)?;
+    let p: SubmitParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(b.kind == Kind::Exclusive, Error::WrongKind);
+    let (worker, agent) = match b.status {
+        Status::Claimed { worker, agent } => (worker, agent),
+        _ => return Err(Error::WrongStatus),
+    };
+    ensure!(sender == worker, Error::Unauthorized);
+    let t = now(ctx);
+    ensure!(t < resubmit_until(&b, host.state().review_window_ms), Error::DeadlinePassed);
+    b.status = Status::Submitted { worker, agent, work_hash: p.work_hash, at: t };
+    store(host, b);
+    logger.log(&Event::Submitted { id: p.id, worker, work_hash: p.work_hash })?;
+    Ok(())
+}
+
+#[receive(contract = "bounty_board", name = "accept", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    ensure!(sender_account(ctx)? == b.poster, Error::Unauthorized);
+    let worker = match b.status {
+        Status::Submitted { worker, .. } => worker,
+        _ => return Err(Error::WrongStatus),
+    };
+    b.status = Status::Accepted { worker, at: now(ctx) };
+    store(host, b);
+    logger.log(&Event::Accepted { id, worker, auto: false })?;
+    Ok(())
+}
+
+/// The poster sends the work back. The third rejection is final and goes on the poster's record.
+#[receive(contract = "bounty_board", name = "reject", parameter = "RejectParams", error = "Error", mutable, enable_logger)]
+fn reject(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let p: RejectParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(sender_account(ctx)? == b.poster, Error::Unauthorized);
+    let (worker, agent) = match b.status {
+        Status::Submitted { worker, agent, .. } => (worker, agent),
+        _ => return Err(Error::WrongStatus),
+    };
+    b.rejections = b.rejections.saturating_add(1);
+    let count = b.rejections;
+    let poster = b.poster;
+    let fin = count >= FINAL_REJECTION;
+    if fin {
+        b.status = Status::RejectedFinal;
+    } else {
+        b.status = Status::Claimed { worker, agent };
+        b.last_rejected_at = Some(now(ctx));
+    }
+    store(host, b);
+    logger.log(&Event::Rejected { id: p.id, count, reason_hash: p.reason_hash })?;
+    if fin {
+        bump(host, poster, |s| s.rejected_final += 1);
+        logger.log(&Event::RejectedFinal { id: p.id })?;
+    }
+    Ok(())
+}
+
+/// Anyone may accept escrowed work the poster left unreviewed for a full review window.
+#[receive(contract = "bounty_board", name = "auto_accept", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn auto_accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    let (worker, at) = match b.status {
+        Status::Submitted { worker, at, .. } => (worker, at),
+        _ => return Err(Error::WrongStatus),
+    };
+    ensure!(matches!(b.funding, Funding::Escrowed { .. }), Error::NotEscrowed);
+    let t = now(ctx);
+    ensure!(t >= plus(at, host.state().review_window_ms), Error::WindowNotPassed);
+    b.status = Status::Accepted { worker, at: t };
+    store(host, b);
+    logger.log(&Event::Accepted { id, worker, auto: true })?;
+    Ok(())
+}
+
+/// Closes a bounty nobody delivered on in time (or a contest nobody entered).
+#[receive(contract = "bounty_board", name = "expire", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn expire(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    let t = now(ctx);
+    let until = match (b.kind, &b.status) {
+        (Kind::Exclusive, Status::Open) => b.deadline,
+        (Kind::Exclusive, Status::Claimed { .. }) => resubmit_until(&b, host.state().review_window_ms),
+        (Kind::Contest, Status::Open) if b.entry_count == 0 => b.deadline,
+        _ => return Err(Error::WrongStatus),
+    };
+    ensure!(t > until, Error::DeadlineNotPassed);
+    b.status = Status::Expired;
+    store(host, b);
+    logger.log(&Event::Expired { id })?;
+    Ok(())
+}
+
+/// Puts an accepted or awarded, not-funded bounty that was not paid in time on the poster's record.
+#[receive(contract = "bounty_board", name = "mark_unpaid", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn mark_unpaid(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    ensure!(b.funding == Funding::NotFunded, Error::WrongStatus);
+    let (worker, since) = match b.status {
+        Status::Accepted { worker, at } => (worker, at),
+        Status::Awarded { entry_id, at } => (entry_worker(host, id, entry_id)?, at),
+        _ => return Err(Error::WrongStatus),
+    };
+    ensure!(now(ctx) >= plus(since, host.state().payment_window_ms), Error::WindowNotPassed);
+    let poster = b.poster;
+    b.status = Status::AcceptedUnpaid { worker };
+    store(host, b);
+    bump(host, poster, |s| s.unpaid += 1);
+    logger.log(&Event::MarkedUnpaid { id })?;
+    Ok(())
+}
+
+// --- payouts and refunds (operator) --------------------------------------------
+
+/// Records the token transfer(s) that paid a bounty: from escrow, or the poster's
+/// direct x402 payment for a not-funded bounty. Recipients and amounts must match state.
+#[receive(contract = "bounty_board", name = "record_payout", parameter = "RecordPayoutParams", error = "Error", mutable, enable_logger)]
+fn record_payout(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    ensure_operator(ctx, host)?;
+    let p: RecordPayoutParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    let single = |to: AccountAddress| p.payouts.len() == 1 && p.payouts[0].to == to && p.payouts[0].amount >= b.reward;
+    let valid = match b.status {
+        Status::Accepted { worker, .. } | Status::AcceptedUnpaid { worker } => single(worker),
+        Status::Awarded { entry_id, .. } => single(entry_worker(host, p.id, entry_id)?),
+        Status::Splitting { .. } => {
+            let shares = split_shares(host, &b)?;
+            shares.len() == p.payouts.len() && shares.iter().zip(p.payouts.iter()).all(|(s, q)| s.to == q.to && s.amount == q.amount)
+        }
+        _ => return Err(Error::WrongStatus),
+    };
+    ensure!(valid, Error::InvalidParams);
+    let poster = b.poster;
+    b.status = Status::Paid;
+    store(host, b);
+    bump(host, poster, |s| s.paid_as_poster += 1);
+    for q in &p.payouts {
+        bump(host, q.to, |s| s.paid_as_worker += 1);
+        logger.log(&Event::PayoutRecorded { id: p.id, to: q.to, amount: q.amount, tx: q.tx })?;
+    }
+    Ok(())
+}
+
+#[receive(contract = "bounty_board", name = "record_refund", parameter = "RecordRefundParams", error = "Error", mutable, enable_logger)]
+fn record_refund(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    ensure_operator(ctx, host)?;
+    let p: RecordRefundParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(matches!(b.funding, Funding::Escrowed { .. }), Error::NotEscrowed);
+    ensure!(matches!(b.status, Status::Cancelled | Status::Expired | Status::RejectedFinal), Error::WrongStatus);
+    b.status = Status::Refunded;
+    store(host, b);
+    logger.log(&Event::RefundRecorded { id: p.id, tx: p.tx })?;
+    Ok(())
+}
+
+// --- contest flow --------------------------------------------------------------
+
+#[receive(contract = "bounty_board", name = "enter", parameter = "EnterParams", error = "Error", mutable, enable_logger, crypto_primitives)]
+fn enter(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypto: &CryptoPrimitives) -> ContractResult<()> {
+    let worker = sender_account(ctx)?;
+    let p: EnterParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(b.kind == Kind::Contest, Error::WrongKind);
+    ensure!(b.status == Status::Open, Error::WrongStatus);
+    let t = now(ctx);
+    ensure!(t < b.deadline, Error::DeadlinePassed);
+    ensure!(worker != b.poster, Error::InvalidParams);
+    verify_work(ctx, host, crypto, WorkKind::Enter, p.id, worker, p.agent, p.attestation_expiry, p.signature)?;
+    ensure!(!host.state().entered.contains(&(p.id, worker)), Error::AlreadyEntered);
+    ensure!(b.entry_count < MAX_ENTRIES, Error::ContestFull);
+    let entry_id = b.entry_count;
+    b.entry_count += 1;
+    let _ = host.state_mut().entries.insert((p.id, entry_id), Entry { worker, agent: p.agent, work_hash: p.work_hash, at: t });
+    let _ = host.state_mut().entered.insert((p.id, worker));
+    store(host, b);
+    logger.log(&Event::Entered { id: p.id, entry_id, worker, agent: p.agent, work_hash: p.work_hash })?;
+    Ok(())
+}
+
+/// The poster picks the winning entry between the deadline and the end of the review window.
+#[receive(contract = "bounty_board", name = "award", parameter = "AwardParams", error = "Error", mutable, enable_logger)]
+fn award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let p: AwardParams = ctx.parameter_cursor().get()?;
+    let mut b = load(host, p.id)?;
+    ensure!(sender_account(ctx)? == b.poster, Error::Unauthorized);
+    ensure!(b.kind == Kind::Contest, Error::WrongKind);
+    ensure!(b.status == Status::Open, Error::WrongStatus);
+    let t = now(ctx);
+    ensure!(t >= b.deadline, Error::DeadlineNotPassed);
+    ensure!(t < plus(b.deadline, host.state().review_window_ms), Error::DeadlinePassed);
+    ensure!(p.entry_id < b.entry_count, Error::NotFound);
+    let worker = entry_worker(host, p.id, p.entry_id)?;
+    b.status = Status::Awarded { entry_id: p.entry_id, at: t };
+    store(host, b);
+    logger.log(&Event::Awarded { id: p.id, entry_id: p.entry_id, worker })?;
+    Ok(())
+}
+
+/// An escrowed contest the poster did not award in time is split among all entrants.
+#[receive(contract = "bounty_board", name = "split_unawarded", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn split_unawarded(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    ensure!(b.kind == Kind::Contest, Error::WrongKind);
+    ensure!(b.status == Status::Open && b.entry_count > 0, Error::WrongStatus);
+    ensure!(matches!(b.funding, Funding::Escrowed { .. }), Error::NotEscrowed);
+    let t = now(ctx);
+    ensure!(t >= plus(b.deadline, host.state().review_window_ms), Error::WindowNotPassed);
+    let entries = b.entry_count;
+    b.status = Status::Splitting { at: t };
+    store(host, b);
+    logger.log(&Event::SplitStarted { id, entries })?;
+    Ok(())
+}
+
+/// A not-funded contest the poster did not award in time: closed, and on the poster's record.
+#[receive(contract = "bounty_board", name = "no_award", parameter = "u64", error = "Error", mutable, enable_logger)]
+fn no_award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let mut b = load(host, id)?;
+    ensure!(b.kind == Kind::Contest, Error::WrongKind);
+    ensure!(b.status == Status::Open && b.entry_count > 0 && b.funding == Funding::NotFunded, Error::WrongStatus);
+    ensure!(now(ctx) >= plus(b.deadline, host.state().review_window_ms), Error::WindowNotPassed);
+    let poster = b.poster;
+    b.status = Status::NoAward;
+    store(host, b);
+    bump(host, poster, |s| s.no_award += 1);
+    logger.log(&Event::NoAward { id })?;
+    Ok(())
+}
+
 // --- admin -------------------------------------------------------------------
 
 #[receive(contract = "bounty_board", name = "set_attestor", parameter = "PublicKeyEd25519", error = "Error", mutable, enable_logger)]
@@ -191,6 +520,20 @@ fn set_admin(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) 
 fn view_bounty(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Option<Bounty>> {
     let id: u64 = ctx.parameter_cursor().get()?;
     Ok(host.state().bounties.get(&id).map(|b| b.clone()))
+}
+
+#[receive(contract = "bounty_board", name = "view_entry", parameter = "EntryKey", return_value = "Option<Entry>", error = "Error")]
+fn view_entry(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Option<Entry>> {
+    let k: EntryKey = ctx.parameter_cursor().get()?;
+    Ok(host.state().entries.get(&(k.id, k.entry_id)).map(|e| e.clone()))
+}
+
+/// The shares an unawarded escrowed contest pays out (the escrow worker uses this).
+#[receive(contract = "bounty_board", name = "view_split", parameter = "u64", return_value = "Vec<SplitShare>", error = "Error")]
+fn view_split(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Vec<SplitShare>> {
+    let id: u64 = ctx.parameter_cursor().get()?;
+    let b = load(host, id)?;
+    split_shares(host, &b)
 }
 
 #[receive(contract = "bounty_board", name = "view_stats", parameter = "AccountAddress", return_value = "Stats", error = "Error")]
