@@ -1,0 +1,9 @@
+node_modules/
+target/
+secrets/
+.env
+*.db
+*.db-*
+dist/
+concordium-out/
+.superpowers/
