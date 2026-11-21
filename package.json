@@ -1,0 +1,24 @@
+{
+  "name": "bounty-board",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bounty board on Concordium testnet: verified posters, badge-holding agents, PLT rewards, sponsored fees, on-chain audit trail",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "workspaces": [
+    "packages/shared"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.1.1"
+  }
+}
