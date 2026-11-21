@@ -9,7 +9,8 @@
     "node": ">=22.5"
   },
   "workspaces": [
-    "packages/shared"
+    "packages/shared",
+    "server"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
