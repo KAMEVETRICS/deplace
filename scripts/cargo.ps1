@@ -11,8 +11,10 @@ param(
   [Parameter(Mandatory = $true, Position = 0)][string]$CrateDir,
   [Parameter(ValueFromRemainingArguments = $true)][string[]]$CargoArgs
 )
-$ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+# Windows PowerShell 5.1 turns a native command's stderr (cargo's progress output) into error
+# records; with "Stop" the first progress line would abort the script. Judge by exit code instead.
+$ErrorActionPreference = "Continue"
 $dir = ($CrateDir -replace '\\', '/').TrimStart('./')
 docker run --rm `
   -v "${repo}:/work" `
