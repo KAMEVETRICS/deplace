@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AccountAddress } from "@concordium/web-sdk";
 import {
+  contractErrorName,
+  decodeConfig,
   decodeEvent,
   decodeOptionBounty,
   decodeSplit,
@@ -124,6 +126,30 @@ describe("codec", () => {
       paidAsWorker: 6,
     });
     expect(decodeSplit(bytes("01000000" + "04".repeat(32) + "2200000000000000"))).toEqual([{ to: acct(4), amount: 34n }]);
+  });
+
+  it("decodes the config view", () => {
+    const h =
+      "01".repeat(32) + "02".repeat(32) + "aa".repeat(32) + "0232000000000000" + "0000000000000000" +
+      "06000000" + Buffer.from("EUDemo").toString("hex") + "60ea000000000000" + "c0d4010000000000" + "0500000000000000";
+    expect(decodeConfig(bytes(h))).toEqual({
+      admin: acct(1),
+      operator: acct(2),
+      attestorHex: "aa".repeat(32),
+      registry: { index: 12802n, subindex: 0n },
+      rewardToken: "EUDemo",
+      reviewWindowMs: 60_000n,
+      paymentWindowMs: 120_000n,
+      nextId: 5n,
+    });
+  });
+
+  it("names contract reject codes (same table as tests/codec.rs)", () => {
+    expect(contractErrorName(-1)).toBe("ParseError");
+    expect(contractErrorName(-3)).toBe("Unauthorized");
+    expect(contractErrorName(-13)).toBe("NotFound");
+    expect(contractErrorName(-17)).toBe("Overflow");
+    expect(contractErrorName(-99)).toBe("reject code -99");
   });
 
   it("refuses a hex value of the wrong length", () => {

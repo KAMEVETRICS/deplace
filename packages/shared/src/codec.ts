@@ -173,6 +173,54 @@ export const decodeStats = (b: Uint8Array): Stats =>
 export const decodeSplit = (b: Uint8Array): { to: string; amount: bigint }[] =>
   whole(b, (r) => Array.from({ length: r.u32() }, () => ({ to: r.account(), amount: r.u64() })));
 
+export interface BoardConfig {
+  admin: string;
+  operator: string;
+  attestorHex: string;
+  registry: { index: bigint; subindex: bigint };
+  rewardToken: string;
+  reviewWindowMs: bigint;
+  paymentWindowMs: bigint;
+  nextId: bigint;
+}
+
+export const decodeConfig = (b: Uint8Array): BoardConfig =>
+  whole(b, (r) => ({
+    admin: r.account(),
+    operator: r.account(),
+    attestorHex: r.hex(32),
+    registry: { index: r.u64(), subindex: r.u64() },
+    rewardToken: Buffer.from(r.hex(r.u32()), "hex").toString("utf8"),
+    reviewWindowMs: r.u64(),
+    paymentWindowMs: r.u64(),
+    nextId: r.u64(),
+  }));
+
+/** bounty_board `Error` variants in declaration order; the contract rejects with code -(index + 1). */
+export const CONTRACT_ERRORS = [
+  "ParseError",
+  "LogFull",
+  "Unauthorized",
+  "BadSignature",
+  "AttestationExpired",
+  "WrongStatus",
+  "WrongKind",
+  "NotEscrowed",
+  "DeadlinePassed",
+  "DeadlineNotPassed",
+  "WindowNotPassed",
+  "InvalidParams",
+  "NotFound",
+  "AlreadyEntered",
+  "ContestFull",
+  "RegistryCheckFailed",
+  "Overflow",
+] as const;
+
+export function contractErrorName(code: number): string {
+  return CONTRACT_ERRORS[-code - 1] ?? `reject code ${code}`;
+}
+
 // --- events ------------------------------------------------------------------
 
 export type BoardEvent =

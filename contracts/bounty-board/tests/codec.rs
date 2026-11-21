@@ -71,6 +71,39 @@ fn event_vectors_match_typescript() {
 }
 
 #[test]
+fn error_codes_match_typescript() {
+    // packages/shared/src/codec.ts CONTRACT_ERRORS: code = -(index + 1).
+    let code = |e: Error| -> i32 { concordium_std::Reject::from(e).error_code.get() };
+    assert_eq!(code(Error::ParseError), -1);
+    assert_eq!(code(Error::Unauthorized), -3);
+    assert_eq!(code(Error::NotFound), -13);
+    assert_eq!(code(Error::Overflow), -17);
+}
+
+#[test]
+fn config_vector_matches_typescript() {
+    let cfg = ConfigView {
+        admin: AccountAddress([1; 32]),
+        operator: AccountAddress([2; 32]),
+        attestor: PublicKeyEd25519([0xaa; 32]),
+        registry: ContractAddress { index: 12802, subindex: 0 },
+        reward_token: "EUDemo".into(),
+        review_window_ms: 60_000,
+        payment_window_ms: 120_000,
+        next_id: 5,
+    };
+    assert_eq!(
+        bytes(&cfg),
+        format!(
+            "{}{}{}0232000000000000000000000000000006000000455544656d6f60ea000000000000c0d40100000000000500000000000000",
+            "01".repeat(32),
+            "02".repeat(32),
+            "aa".repeat(32)
+        )
+    );
+}
+
+#[test]
 fn record_payout_vector_matches_typescript() {
     let p = RecordPayoutParams {
         id: 7,
