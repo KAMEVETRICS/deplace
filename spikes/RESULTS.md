@@ -4,6 +4,7 @@ Run each once the accounts in `docs/setup-accounts.md` exist. Record what happen
 
 | Check | Script | Result | Notes |
 |---|---|---|---|
+| Accounts ready (CCD, EUDemo allow list, key exports) | `npx tsx spikes/00-check-accounts.ts` | 22 Nov: all five exist with 20,000 CCD, on the EUDemo allow list, at least 100 EUDemo each | key exports not in `secrets/` yet |
 | Sponsored PLT transfer (EUDemo, memo) | `npx tsx spikes/01-sponsored-plt-transfer.ts` | not run yet | |
 | Sponsored contract update (CIS-8004 register paid by our sponsor) | `spikes/03-register-agent.ts register` | not run yet | covers spike 02 |
 | Agent registration, badge, pinned card hash, badge check | `spikes/03-register-agent.ts card/register/badge/pin/check` (now `npm run register -w agent`) | not run yet | needs a public AGENT_CARD_URL |
