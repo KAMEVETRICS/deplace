@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { Router } from "express";
 import { AccountAddress, Transaction, TransactionHash } from "@concordium/web-sdk";
-import { encodeRecordPayout, loadConfig } from "@bounty/shared";
+import { encodeRecordPayout, encodeU64, loadConfig } from "@bounty/shared";
+import { dueAction } from "./board/keeper.js";
 import { agentCardRouter } from "./api/cards.js";
 import { createApp } from "./api/app.js";
 import { transferNoter } from "./board/payments.js";
@@ -197,15 +198,37 @@ const app = createApp({
   },
 });
 
+// Keeper: sends the permissionless time-based calls (auto_accept, mark_unpaid, split_unawarded,
+// no_award, expire) when due. The contract checks block time, so a call that is a few seconds
+// early is rejected and retried on a later pass.
+const windows = { reviewWindowMs: onChain.reviewWindowMs, paymentWindowMs: onChain.paymentWindowMs };
+const lastTried = new Map<string, number>();
+async function keep() {
+  for (const b of store.bounties({})) {
+    const action = dueAction(b, BigInt(Date.now()), windows);
+    if (!action) continue;
+    const key = `${b.id}:${action}`;
+    if (Date.now() - (lastTried.get(key) ?? 0) < 60_000) continue;
+    lastTried.set(key, Date.now());
+    try {
+      const tx = await operator.update(action, encodeU64(b.id));
+      console.log(`[keeper] bounty ${b.id}: ${action} ${tx}`);
+    } catch (e) {
+      console.warn(`[keeper] bounty ${b.id}: ${action} not accepted yet: ${(e as Error).message}`);
+    }
+  }
+}
+
 let busy = false;
 async function loop() {
   if (busy) return;
   busy = true;
   try {
     await service.sync(0);
+    await keep();
     await escrow.tick();
   } catch (e) {
-    console.error("[loop] sync or escrow tick failed:", e);
+    console.error("[loop] sync, keeper or escrow tick failed:", e);
   } finally {
     busy = false;
   }
