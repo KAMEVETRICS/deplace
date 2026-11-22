@@ -25,6 +25,25 @@ async function readLimited(res: Response): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** Pauses before the 2nd and 3rd attempt. */
+const RETRY_DELAYS_MS = [1_000, 2_000];
+
+/**
+ * Fetches the page, retrying only when fetch fails before any response (a TypeError, such as a
+ * failed DNS lookup or a refused connection). HTTP errors and timeouts are not retried.
+ */
+async function fetchPage(url: URL): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "follow" });
+    } catch (e) {
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (!(e instanceof TypeError) || delay === undefined) throw e;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 function visibleWords(html: string): number {
   const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? html;
   const text = body
@@ -45,7 +64,7 @@ export const pageFacts: TaskHandler = {
   async run(spec) {
     const url = urlOf(spec);
     if (!url) throw new Error("page-facts needs input.url (http or https)");
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: "follow" });
+    const res = await fetchPage(url);
     if (!res.ok) throw new Error(`GET ${url} answered HTTP ${res.status}`);
     const body = await readLimited(res);
     const html = body.toString("utf8");

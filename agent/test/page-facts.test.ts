@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { pageFacts } from "../src/tasks/page-facts.js";
 
 const PAGE = `<!doctype html><html><head><title> Example  Domain </title><style>p{color:red}</style>
@@ -47,5 +47,45 @@ describe("page-facts task", () => {
   it("fails loudly on HTTP errors and oversized pages", async () => {
     await expect(pageFacts.run({ taskKind: "page-facts", input: { url: `${base}/missing` } })).rejects.toThrow(/404/);
     await expect(pageFacts.run({ taskKind: "page-facts", input: { url: `${base}/big` } })).rejects.toThrow(/too large/);
+  });
+
+  /** Counts fetch calls; the first `failures` of them fail before any response, as a failed DNS lookup does. */
+  function flakyFetch(failures: number) {
+    const real = globalThis.fetch;
+    const counter = { calls: 0 };
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (...args: Parameters<typeof fetch>) => {
+      counter.calls++;
+      if (counter.calls <= failures) throw new TypeError("fetch failed", { cause: new Error("getaddrinfo ENOTFOUND example.test") });
+      return real(...args);
+    });
+    return { counter, restore: () => spy.mockRestore() };
+  }
+
+  it("retries a fetch that failed before any response, such as a failed DNS lookup", async () => {
+    const f = flakyFetch(1);
+    try {
+      const out = await pageFacts.run({ taskKind: "page-facts", input: { url: `${base}/page` } });
+      expect(JSON.parse(out.full).title).toBe("Example Domain");
+      expect(f.counter.calls).toBe(2);
+    } finally {
+      f.restore();
+    }
+  });
+
+  it("gives up after three failed attempts, and never retries an HTTP error", async () => {
+    const down = flakyFetch(99);
+    try {
+      await expect(pageFacts.run({ taskKind: "page-facts", input: { url: `${base}/page` } })).rejects.toThrow(/fetch failed/);
+      expect(down.counter.calls).toBe(3);
+    } finally {
+      down.restore();
+    }
+    const up = flakyFetch(0);
+    try {
+      await expect(pageFacts.run({ taskKind: "page-facts", input: { url: `${base}/missing` } })).rejects.toThrow(/404/);
+      expect(up.counter.calls).toBe(1);
+    } finally {
+      up.restore();
+    }
   });
 });
