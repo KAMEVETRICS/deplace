@@ -10,11 +10,14 @@ const CONTRACT_HEX: &str = "d2040000000000000000000000000000";
 const EXPIRY_HEX: &str = "0807060504030201";
 
 fn vectors() -> (String, String, String) {
+    // contract, poster, poster_agent Some(5), kind Exclusive, spec_hash, reward 100, deadline 2, expiry
     let post = format!(
-        "426f756e7479426f6172642f76312f706f7374{CONTRACT_HEX}{}01{}{}{EXPIRY_HEX}",
+        "426f756e7479426f6172642f76312f706f7374{CONTRACT_HEX}{}01{}00{}{}{}{EXPIRY_HEX}",
         "07".repeat(32),
         "0500000000000000",
-        "ab".repeat(32)
+        "ab".repeat(32),
+        "6400000000000000",
+        "0200000000000000"
     );
     let claim =
         format!("426f756e7479426f6172642f76312f636c61696d{CONTRACT_HEX}2a00000000000000{}00{EXPIRY_HEX}", "09".repeat(32));
@@ -35,7 +38,10 @@ fn attestation_vectors_match_typescript() {
         contract,
         poster: AccountAddress([7; 32]),
         poster_agent: Some(5),
+        kind: Kind::Exclusive,
         spec_hash: HashSha2256([0xab; 32]),
+        reward: 100,
+        deadline: ts(2),
         expiry,
     });
     assert_eq!(hex(&post), post_v);
@@ -78,7 +84,7 @@ fn post_with_valid_attestation_creates_open_bounty() {
 fn post_rejects_bad_signature() {
     let mut env = Env::new();
     let expiry = env.now_ms() + 60_000;
-    let signature = env.post_signature(&other_key(), env.contract, POSTER, None, expiry);
+    let signature = env.post_signature(&other_key(), env.contract, POSTER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     let r = env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: None,
@@ -95,7 +101,7 @@ fn post_rejects_bad_signature() {
 fn post_rejects_expired_attestation() {
     let mut env = Env::new();
     let expiry = env.now_ms() - 1;
-    let signature = env.post_signature(&attestor(), env.contract, POSTER, None, expiry);
+    let signature = env.post_signature(&attestor(), env.contract, POSTER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     let r = env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: None,
@@ -113,7 +119,7 @@ fn post_rejects_signature_for_other_contract() {
     let mut env = Env::new();
     let expiry = env.now_ms() + 60_000;
     let elsewhere = ContractAddress { index: env.contract.index + 1, subindex: 0 };
-    let signature = env.post_signature(&attestor(), elsewhere, POSTER, None, expiry);
+    let signature = env.post_signature(&attestor(), elsewhere, POSTER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     let r = env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: None,
@@ -131,7 +137,7 @@ fn post_rejects_attestation_for_another_poster() {
     let mut env = Env::new();
     let expiry = env.now_ms() + 60_000;
     // The board attested OTHER, but POSTER sends it.
-    let signature = env.post_signature(&attestor(), env.contract, OTHER, None, expiry);
+    let signature = env.post_signature(&attestor(), env.contract, OTHER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     let r = env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: None,
@@ -149,7 +155,7 @@ fn post_rejects_unattested_agent() {
     let mut env = Env::new();
     let expiry = env.now_ms() + 60_000;
     // Attested without an agent, but the parameters claim agent 3.
-    let signature = env.post_signature(&attestor(), env.contract, POSTER, None, expiry);
+    let signature = env.post_signature(&attestor(), env.contract, POSTER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     let r = env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: Some(3),
@@ -160,6 +166,28 @@ fn post_rejects_unattested_agent() {
         signature,
     });
     assert_eq!(reject_reason(r), Error::BadSignature);
+}
+
+#[test]
+fn post_rejects_attestation_for_other_terms() {
+    // The board attested reward 100, Exclusive, deadline D; the poster tries to change one of them.
+    let mut env = Env::new();
+    let expiry = env.now_ms() + 60_000;
+    let deadline = env.now_ms() + HOUR_MS;
+    let signature = env.post_signature(&attestor(), env.contract, POSTER, None, Kind::Exclusive, 100, deadline, expiry);
+    let params = |kind, reward, deadline_ms| PostParams {
+        kind,
+        poster_agent: None,
+        spec_hash: SPEC,
+        reward,
+        deadline: ts(deadline_ms),
+        attestation_expiry: ts(expiry),
+        signature,
+    };
+    assert_eq!(reject_reason(env.call(POSTER, "post", &params(Kind::Exclusive, 1_000, deadline))), Error::BadSignature);
+    assert_eq!(reject_reason(env.call(POSTER, "post", &params(Kind::Contest, 100, deadline))), Error::BadSignature);
+    assert_eq!(reject_reason(env.call(POSTER, "post", &params(Kind::Exclusive, 100, deadline + HOUR_MS))), Error::BadSignature);
+    env.call(POSTER, "post", &params(Kind::Exclusive, 100, deadline)).unwrap();
 }
 
 #[test]
@@ -203,7 +231,7 @@ fn set_attestor_admin_only_and_rotates() {
 
     // ... and the new one does.
     let expiry = env.now_ms() + 60_000;
-    let signature = env.post_signature(&other_key(), env.contract, POSTER, None, expiry);
+    let signature = env.post_signature(&other_key(), env.contract, POSTER, None, Kind::Exclusive, 100, env.now_ms() + HOUR_MS, expiry);
     env.call(POSTER, "post", &PostParams {
         kind: Kind::Exclusive,
         poster_agent: None,

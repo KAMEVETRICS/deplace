@@ -160,6 +160,20 @@ describe("escrow deposits", () => {
     expect(await worker().noteDeposit(TX(9))).toEqual({ confirmed: true });
   });
 
+  it("confirms a memo-less x402 deposit when the funding route names the bounty", async () => {
+    deposit(TX(5), { memo: null }); // the x402 Concordium client sends no memo
+    expect(await worker().noteDeposit(TX(5), { bountyId: 1n })).toEqual({ confirmed: true });
+    expect(chain.confirmed).toEqual([[1n, TX(5)]]);
+  });
+
+  it("still checks amount and sender for a named bounty, and refuses a memo naming another bounty", async () => {
+    deposit(TX(5), { memo: null, amount: 99n });
+    deposit(TX(6), { memo: null, from: "stranger" });
+    deposit(TX(7), { memo: "fund:2" });
+    for (const tx of [TX(5), TX(6), TX(7)]) expect((await worker().noteDeposit(tx, { bountyId: 1n })).confirmed).toBe(false);
+    expect(chain.confirmed).toEqual([]);
+  });
+
   it("refuses funding once the bounty is accepted", async () => {
     chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, { type: "NotFunded" }));
     deposit(TX(5));
@@ -213,12 +227,27 @@ describe("escrow payouts and refunds", () => {
     expect(chain.sent).toHaveLength(2);
   });
 
-  it("resends a transfer that expired without reaching the chain", async () => {
+  it("keeps a failed payout visible in health after a restart", async () => {
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
+    store.addCandidate(1n);
+    await worker().tick();
+    chain.finalizeAll({ state: "failed", reason: "recipient is not on the allow list" });
+    await worker().tick(); // failure recorded
+    now += 10_000;
+    const restarted = worker(); // inside the back-off window
+    await restarted.tick();
+    expect(restarted.health().failures).toEqual([{ id: 1n, reason: expect.stringMatching(/allow list/), at: 1_000 }]);
+  });
+
+  it("resends a transfer that expired without reaching the chain, but only after a safety margin", async () => {
     chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
     store.addCandidate(1n);
     await worker().tick();
     chain.status.delete(TX(100)); // the node never saw it
-    now = 20_000; // after its expiry
+    now = 20_000; // just after its expiry: it could still be propagating
+    await worker().tick();
+    expect(chain.sent.map((s) => s.hash)).toEqual([TX(100)]);
+    now = 10_000 + 5 * 60_000 + 1; // expiry plus the margin
     await worker().tick();
     expect(chain.sent.map((s) => s.hash)).toEqual([TX(100), TX(101)]);
   });

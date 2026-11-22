@@ -82,6 +82,17 @@ const unsponsoredTypes = new Set(
   (process.env.SPONSOR_DISABLED_TYPES ?? "").split(",").map((s) => s.trim()).filter((s): s is Intent["type"] => s === "contract" || s === "plt-transfer"),
 );
 
+// Sponsoring pauses when the sponsor's CCD drops below this floor (checked at most once a minute).
+const stopBelowMicroCcd = BigInt(process.env.SPONSOR_STOP_CCD ?? "20") * 1_000_000n;
+let balanceChecked = { at: 0, ok: true };
+const sponsorBalanceOk = async () => {
+  if (Date.now() - balanceChecked.at > 60_000) {
+    const info = await client.getAccountInfo(AccountAddress.fromBase58(sponsorWallet.address));
+    balanceChecked = { at: Date.now(), ok: info.accountAmount.microCcdAmount >= stopBelowMicroCcd };
+  }
+  return balanceChecked.ok;
+};
+
 let service: BoardService; // assigned below; the policy needs it for payee lookups
 const policy = new SponsorPolicy({
   escrowAccount: operatorWallet.address,
@@ -90,6 +101,7 @@ const policy = new SponsorPolicy({
     const b = await contract.view(id);
     return b ? { poster: b.poster, payee: await service.payee(b), reward: b.reward } : null;
   },
+  sponsorBalanceOk,
 });
 const sponsor = new SponsorService(policy, {
   sponsor: sponsorWallet,
@@ -163,7 +175,7 @@ try {
   console.error("[startup] x402 gateway unavailable; pay-on-delivery and x402 funding are off:", e);
 }
 const x402 = gateway
-  ? x402Router(service, gateway, { publicBaseUrl: cfg.publicBaseUrl, recordPayout, noteDeposit: (tx) => escrow.noteDeposit(tx) })
+  ? x402Router(service, gateway, { publicBaseUrl: cfg.publicBaseUrl, recordPayout, noteDeposit: (tx, opts) => escrow.noteDeposit(tx, opts) })
   : Router().all(["/bounties/:id/work", "/bounties/:id/fund"], (_req, res) => {
       res.status(503).json({ error: "x402 is unavailable on this board right now; use the direct transfer fallback" });
     });
@@ -226,6 +238,7 @@ async function loop() {
   try {
     await service.sync(0);
     await keep();
+    await service.retryUnrecordedPayments(recordPayout);
     await escrow.tick();
   } catch (e) {
     console.error("[loop] sync, keeper or escrow tick failed:", e);

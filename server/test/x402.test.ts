@@ -54,8 +54,14 @@ const gateway: X402Gateway = {
     gwCalls.push({ payTo, amount });
     return { header: Buffer.from(JSON.stringify({ payTo, amount: amount.toString(), resource })).toString("base64"), body: { x402Version: 2, accepts: [{ payTo }] }, requirements: { payTo } };
   },
-  settle: async () => settleResult,
+  settle: async (_header, _req, expectedPayer) => {
+    settleCalls.push({ expectedPayer });
+    return settleResult;
+  },
 };
+let settleCalls: { expectedPayer?: string }[];
+let depositIds: (bigint | undefined)[];
+let recordFails: number;
 
 beforeEach(async () => {
   chain = new Map();
@@ -63,6 +69,9 @@ beforeEach(async () => {
   gwCalls = [];
   payouts = [];
   deposits = [];
+  settleCalls = [];
+  depositIds = [];
+  recordFails = 0;
   settleResult = { ok: true, tx: "ee".repeat(32), responseHeader: "settled", payer: poster.address };
   service = new BoardService({
     config: { contract: { index: 1n, subindex: 0n }, rewardTokenId: "EUDemo", tokenDecimals: 6, escrowAccount: ESCROW, sponsorAddress: "s", faucetUrl: null, badgeApi: "x" },
@@ -89,11 +98,16 @@ beforeEach(async () => {
       x402Router(service, gateway, {
         publicBaseUrl: "https://board.example",
         recordPayout: async (id, p) => {
+          if (recordFails > 0) {
+            recordFails--;
+            throw new Error("node unreachable");
+          }
           payouts.push([id, p]);
           return "dd".repeat(32);
         },
-        noteDeposit: async (tx) => {
+        noteDeposit: async (tx, opts) => {
           deposits.push(tx);
+          depositIds.push(opts?.bountyId);
           return { confirmed: true };
         },
       }),
@@ -148,6 +162,29 @@ describe("pay on delivery", () => {
     expect(r.body.payment).toMatchObject({ tx: "ee".repeat(32), link: expect.stringContaining("ee".repeat(32)) });
   });
 
+  it("only accepts the poster's own account as payer", async () => {
+    chain.set(0n, bounty(0n, accepted));
+    await get("/bounties/0/work", await tokenFor(poster), "signed-payment");
+    expect(settleCalls).toEqual([{ expectedPayer: poster.address }]);
+  });
+
+  it("never asks for a second payment when recording the first one failed", async () => {
+    chain.set(0n, bounty(0n, accepted));
+    recordFails = 1;
+    const token = await tokenFor(poster);
+    const first = await get("/bounties/0/work", token, "signed-payment");
+    expect(first.status).toBe(200);
+    expect(first.body.payment.recordError).toMatch(/unreachable/);
+    expect(payouts).toEqual([]);
+
+    // Same request again, without paying: the stored settlement is recorded and the work released.
+    const again = await get("/bounties/0/work", token);
+    expect(again.status).toBe(200);
+    expect(again.body.items[0].full).toBe(FULL);
+    expect(gwCalls).toHaveLength(1); // no new payment terms
+    expect(payouts).toEqual([[0n, [{ to: worker.address, amount: 3_000_000n, tx: "ee".repeat(32) }]]]);
+  });
+
   it("settlement_failure_does_not_record_payout", async () => {
     chain.set(0n, bounty(0n, accepted));
     settleResult = { ok: false, error: "insufficient balance" };
@@ -190,6 +227,9 @@ describe("escrow funding over x402", () => {
     const r = await post("/bounties/0/fund", await tokenFor(poster), "signed-payment");
     expect(r.status).toBe(200);
     expect(deposits).toEqual(["ee".repeat(32)]);
+    // x402 transfers carry no memo, so the route tells the escrow worker which bounty this funds.
+    expect(depositIds).toEqual([0n]);
+    expect(settleCalls).toEqual([{ expectedPayer: poster.address }]);
     expect(r.body.funded).toEqual({ confirmed: true });
   });
 

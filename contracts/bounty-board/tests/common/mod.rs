@@ -126,19 +126,26 @@ impl Env {
 
     // --- posting -----------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)]
     pub fn post_signature(
         &self,
         key: &ed25519_dalek::SigningKey,
         contract: ContractAddress,
         poster: AccountAddress,
         poster_agent: Option<u64>,
+        kind: Kind,
+        reward: u64,
+        deadline_ms: u64,
         expiry_ms: u64,
     ) -> SignatureEd25519 {
         let msg = post_message(&PostAttestation {
             contract,
             poster,
             poster_agent,
+            kind,
             spec_hash: SPEC,
+            reward,
+            deadline: ts(deadline_ms),
             expiry: ts(expiry_ms),
         });
         sign(key, &msg)
@@ -159,7 +166,7 @@ impl Env {
         deadline_ms: u64,
     ) -> CallResult {
         let expiry = self.now_ms() + 60_000;
-        let signature = self.post_signature(&attestor(), self.contract, poster, poster_agent, expiry);
+        let signature = self.post_signature(&attestor(), self.contract, poster, poster_agent, kind, reward, deadline_ms, expiry);
         self.call(poster, "post", &PostParams {
             kind,
             poster_agent,

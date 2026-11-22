@@ -22,8 +22,13 @@ export interface PostAttestation {
   poster: string;
   /** Agent Registry token id when the poster acts as a registered agent. */
   posterAgent: bigint | null;
+  /** The terms the board showed and checked: the chain record must match them. */
+  kind: "Exclusive" | "Contest";
   /** SHA-256 of the bounty spec JSON stored off-chain. */
   specHash: Uint8Array;
+  reward: bigint;
+  /** Unix ms. */
+  deadline: bigint;
   /** Unix time in ms after which the contract refuses the attestation. */
   expiry: bigint;
 }
@@ -52,6 +57,9 @@ class Writer {
   bytes(b: Uint8Array) {
     for (const x of b) this.parts.push(x);
   }
+  byte(v: number) {
+    this.parts.push(v & 0xff);
+  }
   contract(c: ContractRef) {
     this.u64("contract index", c.index);
     this.u64("contract subindex", c.subindex);
@@ -78,7 +86,10 @@ export function postAttestationBytes(a: PostAttestation): Uint8Array {
   w.contract(a.contract);
   w.account(a.poster);
   w.optionU64("posterAgent", a.posterAgent);
+  w.byte(a.kind === "Exclusive" ? 0 : 1);
   w.bytes(a.specHash);
+  w.u64("reward", a.reward);
+  w.u64("deadline", a.deadline);
   w.u64("expiry", a.expiry);
   return w.done();
 }

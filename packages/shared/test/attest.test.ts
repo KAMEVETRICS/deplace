@@ -19,7 +19,10 @@ export const POST_VECTOR =
   CONTRACT_HEX +
   "07".repeat(32) + // poster
   "01" + "0500000000000000" + // poster_agent = Some(5)
+  "00" + // kind = Exclusive
   "ab".repeat(32) + // spec_hash
+  "6400000000000000" + // reward = 100
+  "0200000000000000" + // deadline = 2
   EXPIRY_HEX;
 
 export const CLAIM_VECTOR =
@@ -40,7 +43,7 @@ export const ENTER_VECTOR =
 
 describe("attestation bytes", () => {
   it("encodes a post attestation as domain || serial(struct)", () => {
-    const bytes = postAttestationBytes({ contract, poster, posterAgent: 5n, specHash, expiry });
+    const bytes = postAttestationBytes({ contract, poster, posterAgent: 5n, kind: "Exclusive", specHash, reward: 100n, deadline: 2n, expiry });
     expect(hex(bytes)).toBe(POST_VECTOR);
   });
 
@@ -55,13 +58,13 @@ describe("attestation bytes", () => {
   });
 
   it("binds the attestation to the contract address", () => {
-    const a = postAttestationBytes({ contract, poster, posterAgent: null, specHash, expiry });
-    const b = postAttestationBytes({ contract: { index: 1235n, subindex: 0n }, poster, posterAgent: null, specHash, expiry });
+    const a = postAttestationBytes({ contract, poster, posterAgent: null, kind: "Exclusive", specHash, reward: 100n, deadline: 2n, expiry });
+    const b = postAttestationBytes({ contract: { index: 1235n, subindex: 0n }, poster, posterAgent: null, kind: "Exclusive", specHash, reward: 100n, deadline: 2n, expiry });
     expect(hex(a)).not.toBe(hex(b));
   });
 
   it("rejects a spec hash that is not 32 bytes", () => {
-    expect(() => postAttestationBytes({ contract, poster, posterAgent: null, specHash: new Uint8Array(31), expiry })).toThrow(/32 bytes/);
+    expect(() => postAttestationBytes({ contract, poster, posterAgent: null, kind: "Exclusive", specHash: new Uint8Array(31), reward: 100n, deadline: 2n, expiry })).toThrow(/32 bytes/);
   });
 
   it("rejects values outside u64", () => {

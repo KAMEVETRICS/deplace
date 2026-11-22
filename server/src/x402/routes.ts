@@ -7,15 +7,23 @@ import type { DepositOutcome } from "../escrow/worker.js";
 export interface X402Gateway {
   /** Payment terms for `amount` (smallest units) of the reward token to `payTo`, as header and body. */
   paymentRequired(o: { payTo: string; amount: bigint; resource: string; description: string }): Promise<{ header: string; body: unknown; requirements: unknown }>;
-  /** Verifies a PAYMENT-SIGNATURE header against the terms and settles it (the sponsor pays the fee). */
-  settle(paymentHeader: string, requirements: unknown): Promise<{ ok: true; tx: string; responseHeader: string; payer?: string } | { ok: false; error: string }>;
+  /**
+   * Verifies a PAYMENT-SIGNATURE header against the terms and settles it (the sponsor pays the
+   * fee). With `expectedPayer`, a payment from any other account is refused before it settles.
+   */
+  settle(
+    paymentHeader: string,
+    requirements: unknown,
+    expectedPayer?: string,
+  ): Promise<{ ok: true; tx: string; responseHeader: string; payer?: string } | { ok: false; error: string }>;
 }
 
 export interface PaymentOps {
   publicBaseUrl: string;
   /** Operator records the settlement as the bounty's payout; returns the record transaction. */
   recordPayout(id: bigint, payouts: { to: string; amount: bigint; tx: string }[]): Promise<string>;
-  noteDeposit(tx: string): Promise<DepositOutcome>;
+  /** x402 transfers carry no memo, so the funding route names the bounty. */
+  noteDeposit(tx: string, opts?: { bountyId?: bigint }): Promise<DepositOutcome>;
 }
 
 function bountyId(req: Request): bigint {
@@ -46,6 +54,25 @@ export function x402Router(service: BoardService, gw: X402Gateway, ops: PaymentO
       res.json({ bountyId: id, items });
       return;
     }
+    // A payment already settled for this bounty (recording it failed earlier): record it now and
+    // release the work. Never issue new payment terms while it exists.
+    const earlier = service.settledPayment(id);
+    if (earlier) {
+      let recordTx: string | null = null;
+      let recordError: string | null = null;
+      if (!earlier.recorded) {
+        try {
+          recordTx = await ops.recordPayout(id, [{ to: earlier.payee, amount: earlier.amount, tx: earlier.tx }]);
+          service.markPaymentRecorded(id);
+          await service.refresh(id);
+        } catch (e) {
+          recordError = (e as Error).message;
+        }
+      }
+      res.json({ bountyId: id, items, payment: { tx: earlier.tx, link: txLink(earlier.tx), recordTx, recordError } });
+      return;
+    }
+
     const payee = await service.payee(b);
     if (!payee) throw new BoardError(409, `nothing is owed for bounty ${id}`);
     const terms = await gw.paymentRequired({
@@ -59,17 +86,19 @@ export function x402Router(service: BoardService, gw: X402Gateway, ops: PaymentO
       res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
       return;
     }
-    const settled = await gw.settle(payment, terms.requirements);
+    const settled = await gw.settle(payment, terms.requirements, b.poster);
     if (!settled.ok) {
       res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
       return;
     }
-    // The worker is paid at this point. Recording it is the operator's job; if that
-    // fails the payment still stands, so release the work and report the problem.
+    // The worker is paid at this point. Store that first; recording it on chain is the
+    // operator's job, retried by the server loop if it fails. The work is released either way.
+    service.rememberSettledPayment(id, { tx: settled.tx, payee, amount: b.reward });
     let recordTx: string | null = null;
     let recordError: string | null = null;
     try {
       recordTx = await ops.recordPayout(id, [{ to: payee, amount: b.reward, tx: settled.tx }]);
+      service.markPaymentRecorded(id);
       await service.refresh(id);
     } catch (e) {
       recordError = (e as Error).message;
@@ -100,12 +129,12 @@ export function x402Router(service: BoardService, gw: X402Gateway, ops: PaymentO
       res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
       return;
     }
-    const settled = await gw.settle(payment, terms.requirements);
+    const settled = await gw.settle(payment, terms.requirements, b.poster);
     if (!settled.ok) {
       res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
       return;
     }
-    const funded = await ops.noteDeposit(settled.tx);
+    const funded = await ops.noteDeposit(settled.tx, { bountyId: id });
     await service.refresh(id);
     res.set("PAYMENT-RESPONSE", settled.responseHeader).json({ bountyId: id, funded, payment: { tx: settled.tx, link: txLink(settled.tx) } });
   });

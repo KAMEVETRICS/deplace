@@ -22,6 +22,7 @@ import { classifyAccount, verifyAccountSignature, type AccountInfoLookup } from 
 import { verifyAgent } from "../identity/agent.js";
 import type { Attestor } from "../identity/attestor.js";
 import { ChallengeStore, challengeMessage } from "../identity/challenge.js";
+import { checkBadge } from "../identity/badge.js";
 import { checkPayoutEligible } from "../identity/eligibility.js";
 import type { Intent } from "../sponsor/policy.js";
 import type { PreparedTx } from "../sponsor/sponsor.js";
@@ -209,9 +210,10 @@ export class BoardService {
     });
     const specHash = sha256(json);
     this.d.store.putSpec(specHash, json);
+    await this.recheckAgent(who);
     const posterAgent = who.tokenId ?? null;
     const a = this.d.attestor.attestPost(
-      { contract: this.d.config.contract, poster: who.account, posterAgent, specHash: Buffer.from(specHash, "hex") },
+      { contract: this.d.config.contract, poster: who.account, posterAgent, kind: s.kind, specHash: Buffer.from(specHash, "hex"), reward, deadline: BigInt(s.deadline) },
       ATTESTATION_TTL_MS,
     );
     const parameter = encodePost({
@@ -241,6 +243,19 @@ export class BoardService {
     return b;
   }
 
+  /**
+   * Agents are checked again before the board attests anything for them, so a badge that was
+   * revoked, or a wallet that changed, since login stops working at once. Fails closed.
+   */
+  private async recheckAgent(who: Identity) {
+    if (who.kind !== "agent" || !who.badge || who.tokenId === undefined) return;
+    const badge = await checkBadge(this.d.fetch, this.d.config.badgeApi, who.badge);
+    if (!badge.ok) throw new BoardError(badge.unavailable ? 503 : 401, badge.reason, badge.retryAfter ? { retryAfter: badge.retryAfter } : {});
+    if (badge.tokenId !== who.tokenId) throw new BoardError(401, "the badge now points at another agent; log in again");
+    const wallet = (await this.d.agentWallet(badge.tokenId)) ?? badge.owner;
+    if (wallet !== who.account) throw new BoardError(401, "the agent's wallet changed since login; log in again");
+  }
+
   private async ensurePayable(account: string) {
     const e = await checkPayoutEligible(this.d.isOnAllowList, account, this.d.config.faucetUrl);
     if (!e.ok) throw new BoardError(409, e.reason, { faucetUrl: e.faucetUrl });
@@ -260,6 +275,7 @@ export class BoardService {
     if (b.status.type !== "Open") throw new BoardError(409, `bounty ${id} is ${b.status.type}, not Open`);
     if (BigInt(this.d.now()) >= b.deadline) throw new BoardError(409, "the deadline has passed");
     if (b.poster === who.account) throw new BoardError(409, "you cannot claim your own bounty");
+    await this.recheckAgent(who);
     await this.ensurePayable(who.account);
     const agent = who.tokenId ?? null;
     const a = this.d.attestor.attestWork({ kind: "claim", contract: this.d.config.contract, bountyId: id, worker: who.account, agent }, ATTESTATION_TTL_MS);
@@ -282,6 +298,7 @@ export class BoardService {
       if (b.status.type !== "Open") throw new BoardError(409, `contest ${id} is ${b.status.type}, not Open`);
       if (BigInt(this.d.now()) >= b.deadline) throw new BoardError(409, "the deadline has passed");
       if (b.poster === who.account) throw new BoardError(409, "you cannot enter your own contest");
+      await this.recheckAgent(who);
       await this.ensurePayable(who.account);
       const agent = who.tokenId ?? null;
       const a = this.d.attestor.attestWork({ kind: "enter", contract: this.d.config.contract, bountyId: id, worker: who.account, agent }, ATTESTATION_TTL_MS);
@@ -405,6 +422,33 @@ export class BoardService {
     }
     if ((summary as { transactionType?: string })?.transactionType === "tokenUpdate") await this.d.noteTransfer(txHash);
     return { txHash, link: txLink(txHash), events };
+  }
+
+  /** x402 settlements are stored before they are recorded on chain, so a failed record never leads to paying twice. */
+  settledPayment(id: bigint) {
+    return this.d.store.settledPayment(id);
+  }
+
+  rememberSettledPayment(id: bigint, p: { tx: string; payee: string; amount: bigint }) {
+    this.d.store.putSettledPayment(id, { ...p, recorded: false });
+  }
+
+  markPaymentRecorded(id: bigint) {
+    const p = this.d.store.settledPayment(id);
+    if (p) this.d.store.putSettledPayment(id, { ...p, recorded: true });
+  }
+
+  /** Retries recording x402 payments that settled but were not recorded (called from the server loop). */
+  async retryUnrecordedPayments(record: (id: bigint, payouts: { to: string; amount: bigint; tx: string }[]) => Promise<string>) {
+    for (const { bountyId, payment } of this.d.store.unrecordedPayments()) {
+      try {
+        await record(bountyId, [{ to: payment.payee, amount: payment.amount, tx: payment.tx }]);
+        this.markPaymentRecorded(bountyId);
+        await this.refresh(bountyId);
+      } catch (e) {
+        console.warn(`[x402] recording payment ${payment.tx} for bounty ${bountyId} failed again: ${(e as Error).message}`);
+      }
+    }
   }
 
   /** The operator's own contract calls (confirm_funding, record_payout, record_refund) enter the record here. */

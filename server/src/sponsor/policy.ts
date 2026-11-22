@@ -38,6 +38,10 @@ export interface PolicyOptions {
   bounty: (id: bigint) => Promise<BountyFacts | null>;
   perSenderPerHour?: number;
   perBadgePerHour?: number;
+  /** Cap across all senders: testnet identities are free, so per-account limits alone do not bound spend. */
+  globalPerHour?: number;
+  /** False when the sponsor's CCD balance is below its floor; sponsoring then pauses. */
+  sponsorBalanceOk?: () => Promise<boolean>;
   now?: () => number;
 }
 
@@ -66,19 +70,26 @@ class SlidingWindow {
 export class SponsorPolicy {
   private readonly perSender: SlidingWindow;
   private readonly perBadge: SlidingWindow;
+  private readonly global: SlidingWindow;
   private readonly now: () => number;
 
   constructor(private readonly opts: PolicyOptions) {
     this.perSender = new SlidingWindow(opts.perSenderPerHour ?? 30);
     this.perBadge = new SlidingWindow(opts.perBadgePerHour ?? 10);
+    this.global = new SlidingWindow(opts.globalPerHour ?? 600);
     this.now = opts.now ?? Date.now;
   }
 
   async check(intent: Intent, sender: string, badge?: string): Promise<PolicyDecision> {
     const shape = await this.checkShape(intent, sender);
     if (!shape.ok) return shape;
+    if (this.opts.sponsorBalanceOk && !(await this.opts.sponsorBalanceOk())) {
+      return { ok: false, reason: "the board's sponsor balance is below its floor, so sponsored transactions are paused", retryAfter: 600 };
+    }
 
     const now = this.now();
+    const waitGlobal = this.global.take("*", now);
+    if (waitGlobal !== null) return { ok: false, reason: "board-wide sponsor limit reached for this hour", retryAfter: waitGlobal };
     const waitSender = this.perSender.take(sender, now);
     if (waitSender !== null) return { ok: false, reason: `sponsor rate limit reached for ${sender}`, retryAfter: waitSender };
     if (badge) {

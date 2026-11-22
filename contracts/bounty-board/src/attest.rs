@@ -10,13 +10,17 @@ pub const POST_DOMAIN: &[u8] = b"BountyBoard/v1/post";
 pub const CLAIM_DOMAIN: &[u8] = b"BountyBoard/v1/claim";
 pub const ENTER_DOMAIN: &[u8] = b"BountyBoard/v1/enter";
 
-/// The board checked the poster's identity (and agent badge, if any) for this spec.
+/// The board checked the poster's identity (and agent badge, if any) for this spec, with
+/// exactly these terms: the on-chain record cannot differ from what the board showed.
 #[derive(Serial, Debug, Clone)]
 pub struct PostAttestation {
     pub contract: ContractAddress,
     pub poster: AccountAddress,
     pub poster_agent: Option<u64>,
+    pub kind: crate::state::Kind,
     pub spec_hash: HashSha2256,
+    pub reward: u64,
+    pub deadline: Timestamp,
     pub expiry: Timestamp,
 }
 

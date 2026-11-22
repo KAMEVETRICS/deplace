@@ -75,6 +75,17 @@ describe("sponsor policy", () => {
     expect((await p.check(contract("submit"), worker)).ok).toBe(true);
   });
 
+  it("caps sponsored transactions per hour across all senders", async () => {
+    const p = new SponsorPolicy({ escrowAccount: escrow, rewardTokenId: "EUDemo", bounty: async () => null, globalPerHour: 5, now: () => 0 });
+    for (let i = 0; i < 5; i++) expect((await p.check(contract("claim"), `acct-${i}`)).ok).toBe(true);
+    expect(await p.check(contract("claim"), "acct-new")).toMatchObject({ ok: false, reason: expect.stringMatching(/board-wide/) });
+  });
+
+  it("stops sponsoring when the sponsor balance is below the floor", async () => {
+    const p = new SponsorPolicy({ escrowAccount: escrow, rewardTokenId: "EUDemo", bounty: async () => null, sponsorBalanceOk: async () => false });
+    expect(await p.check(contract("claim"), poster)).toMatchObject({ ok: false, reason: expect.stringMatching(/balance/) });
+  });
+
   it("limits each badge to 10 sponsored transactions an hour, across accounts", async () => {
     const p = policy();
     for (let i = 0; i < 10; i++) expect((await p.check(contract("claim"), `acct-${i}`, "JyP9Badge")).ok).toBe(true);

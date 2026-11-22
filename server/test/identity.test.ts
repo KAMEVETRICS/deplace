@@ -189,9 +189,9 @@ describe("attestor", () => {
   it("attestation_verifies_with_contract_vectors", () => {
     const attestor = new Attestor(seed, () => 1_000n);
     const poster = testAccount(7).address;
-    const a = attestor.attestPost({ contract, poster, posterAgent: 5n, specHash: new Uint8Array(32).fill(0xab) }, 60_000n);
+    const a = attestor.attestPost({ contract, poster, posterAgent: 5n, kind: "Contest", specHash: new Uint8Array(32).fill(0xab), reward: 7n, deadline: 9n }, 60_000n);
     expect(a.expiry).toBe(61_000n);
-    const msg = postAttestationBytes({ contract, poster, posterAgent: 5n, specHash: new Uint8Array(32).fill(0xab), expiry: a.expiry });
+    const msg = postAttestationBytes({ contract, poster, posterAgent: 5n, kind: "Contest", specHash: new Uint8Array(32).fill(0xab), reward: 7n, deadline: 9n, expiry: a.expiry });
     const pub = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(attestor.publicKeyHex, "hex")]), format: "der", type: "spki" });
     expect(verify(null, msg, pub, Buffer.from(a.signatureHex, "hex"))).toBe(true);
 

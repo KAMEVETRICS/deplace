@@ -111,6 +111,8 @@ interface Plan {
 }
 
 const FUNDABLE = new Set(["Open", "Claimed", "Submitted"]);
+/** Wait this long past a transfer's expiry before concluding it never reached the chain. */
+const EXPIRY_GRACE_MS = 5 * 60_000;
 const FINISHED = new Set(["Paid", "Refunded", "NoAward"]);
 
 export class EscrowWorker {
@@ -127,14 +129,18 @@ export class EscrowWorker {
     return { failures: [...this.failures.values()], unmatchedDeposits: this.o.store.unmatchedDeposits() };
   }
 
-  /** Confirms a deposit into escrow if it exactly funds a fundable bounty; otherwise records it as unmatched. */
-  async noteDeposit(tx: string): Promise<DepositOutcome> {
+  /**
+   * Confirms a deposit into escrow if it exactly funds a fundable bounty; otherwise records it
+   * as unmatched. A memo `fund:<id>` names the bounty; x402 payments carry no memo, so the
+   * funding route passes the bounty id it set the payment terms for.
+   */
+  async noteDeposit(tx: string, opts: { bountyId?: bigint } = {}): Promise<DepositOutcome> {
     const previous = this.o.store.depositOutcome(tx);
     if (previous) return previous;
     const info = await this.o.chain.transferInfo(tx);
     if (!info) return { confirmed: false, reason: "transaction not finalized yet, or not a token transfer" };
 
-    const checked = await this.checkDeposit(info);
+    const checked = await this.checkDeposit(info, opts.bountyId);
     if ("reason" in checked) {
       const outcome: DepositOutcome = { confirmed: false, reason: checked.reason };
       this.o.store.markDeposit(tx, outcome);
@@ -159,13 +165,19 @@ export class EscrowWorker {
   }
 
   /** The bounty this deposit exactly funds, or why it funds none. */
-  private async checkDeposit(info: DepositInfo): Promise<{ id: bigint } | { reason: string }> {
+  private async checkDeposit(info: DepositInfo, expectedId?: bigint): Promise<{ id: bigint } | { reason: string }> {
     if (!info.success) return { reason: "transfer was rejected on chain" };
     if (info.token !== this.o.rewardToken) return { reason: `token ${info.token} is not the reward token` };
     if (info.to !== this.o.escrowAccount) return { reason: "not sent to the escrow account" };
-    const m = /^fund:(\d{1,20})$/.exec(info.memo ?? "");
-    if (!m) return { reason: `memo ${JSON.stringify(info.memo)} is not fund:<id>` };
-    const id = BigInt(m[1]!);
+    let id: bigint;
+    if (info.memo === null && expectedId !== undefined) {
+      id = expectedId;
+    } else {
+      const m = /^fund:(\d{1,20})$/.exec(info.memo ?? "");
+      if (!m) return { reason: `memo ${JSON.stringify(info.memo)} is not fund:<id>` };
+      id = BigInt(m[1]!);
+      if (expectedId !== undefined && id !== expectedId) return { reason: `memo names bounty ${id}, but the payment was for bounty ${expectedId}` };
+    }
     const b = await this.o.chain.bounty(id);
     if (!b) return { reason: `no bounty ${id}` };
     if (b.funding.type === "Escrowed") return { reason: `bounty ${id} is already escrowed` };
@@ -235,7 +247,9 @@ export class EscrowWorker {
       const st = await this.o.chain.txStatus(stored.hash);
       if (st.state === "success") return stored.hash;
       if (st.state === "pending") return null;
-      if (st.state === "absent" && this.now() < stored.expiresAt) return null;
+      // An unknown hash may still be propagating or the local clock may be ahead: only treat it
+      // as never landed once its expiry is well past, or a late arrival would pay twice.
+      if (st.state === "absent" && this.now() < stored.expiresAt + EXPIRY_GRACE_MS) return null;
       if (st.state === "failed") {
         if (stored.failedAt === undefined) {
           const reason = `transfer ${stored.hash} failed: ${st.reason}`;
@@ -243,7 +257,11 @@ export class EscrowWorker {
           this.fail(id, reason);
           return null;
         }
-        if (this.now() - stored.failedAt < this.backoff) return null;
+        if (this.now() - stored.failedAt < this.backoff) {
+          // Keep it visible in health, also after a restart (failures are kept in memory).
+          this.fail(id, stored.failure ?? `transfer ${stored.hash} failed`, stored.failedAt);
+          return null;
+        }
       }
       // Failed and backed off, or expired without ever reaching the chain: send a new one.
     }
@@ -253,7 +271,7 @@ export class EscrowWorker {
     return null;
   }
 
-  private fail(id: bigint, reason: string) {
-    this.failures.set(id, { id, reason, at: this.now() });
+  private fail(id: bigint, reason: string, at = this.now()) {
+    this.failures.set(id, { id, reason, at });
   }
 }

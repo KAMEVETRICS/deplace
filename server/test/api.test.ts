@@ -53,6 +53,7 @@ let base = "";
 let service: BoardService;
 let close = () => {};
 let unsponsored = false;
+let badgeResponse: () => Response;
 
 const badgeVerdict = (owner: string) => ({
   token_id: 9,
@@ -84,7 +85,7 @@ function deps(): BoardDeps {
     accounts: lookupOf(poster, company, worker, agentWallet),
     idpName: (i) => ({ 0: "Concordium testnet IP", 4: "Global FinReg Testnet" })[i],
     agentWallet: async () => agentWallet.address,
-    fetch: (async () => new Response(JSON.stringify(badgeVerdict(poster.address)), { status: 200 })) as unknown as typeof fetch,
+    fetch: (async () => badgeResponse()) as unknown as typeof fetch,
     sponsor: {
       prepare: async (intent, sender, badge) => {
         intents.push({ intent, sender, badge });
@@ -119,6 +120,7 @@ beforeEach(async () => {
   deposits = [];
   observed = [];
   unsponsored = false;
+  badgeResponse = () => new Response(JSON.stringify(badgeVerdict(poster.address)), { status: 200 });
   relayOutcome = { txHash: "aa".repeat(32), summary: {}, sponsor: SPONSOR };
   service = new BoardService(deps());
   const app = createApp({ service });
@@ -173,6 +175,19 @@ describe("auth", () => {
     const r = await call("POST", "/auth/login", { badge: "JyP9Badge", nonce: ch.body.nonce, signature: await agentWallet.sign(ch.body.message) });
     expect(r.status).toBe(200);
     expect(r.body.identity).toMatchObject({ kind: "agent", account: agentWallet.address, tokenId: "9", badge: "JyP9Badge" });
+  });
+
+  it("re-checks an agent's badge before attesting a claim, so a revoked agent stops at once", async () => {
+    chainBounties.set(0n, bounty(0n));
+    const ch = await call("POST", "/auth/challenge", { badge: "JyP9Badge" });
+    const login = await call("POST", "/auth/login", { badge: "JyP9Badge", nonce: ch.body.nonce, signature: await agentWallet.sign(ch.body.message) });
+    badgeResponse = () => new Response(JSON.stringify({ error: "revoked", message: "agent revoked" }), { status: 409 });
+    expect((await call("POST", "/bounties/0/claim", {}, login.body.token)).status).toBe(401);
+    badgeResponse = () => new Response("{}", { status: 429, headers: { "retry-after": "7" } });
+    const busy = await call("POST", "/bounties/0/claim", {}, login.body.token);
+    expect(busy.status).toBe(503);
+    expect(busy.body.retryAfter).toBe(7);
+    expect(intents).toEqual([]);
   });
 });
 

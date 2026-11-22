@@ -111,7 +111,10 @@ fn post(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypt
         contract: ctx.self_address(),
         poster,
         poster_agent: p.poster_agent,
+        kind: p.kind,
         spec_hash: p.spec_hash,
+        reward: p.reward,
+        deadline: p.deadline,
         expiry: p.attestation_expiry,
     });
     ensure!(crypto.verify_ed25519_signature(host.state().attestor, p.signature, &msg), Error::BadSignature);

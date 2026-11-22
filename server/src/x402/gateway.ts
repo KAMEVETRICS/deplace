@@ -46,7 +46,7 @@ export async function createX402Gateway(o: GatewayOptions): Promise<X402Gateway>
       return { header: encodePaymentRequiredHeader(body), body, requirements };
     },
 
-    async settle(paymentHeader, requirements) {
+    async settle(paymentHeader, requirements, expectedPayer) {
       let payload;
       try {
         payload = decodePaymentSignatureHeader(paymentHeader);
@@ -56,6 +56,8 @@ export async function createX402Gateway(o: GatewayOptions): Promise<X402Gateway>
       const req = requirements as PaymentRequirements;
       const verified = await resourceServer.verifyPayment(payload, req);
       if (!verified.isValid) return { ok: false, error: verified.invalidMessage ?? verified.invalidReason ?? "payment is not valid" };
+      // Refuse before settling: a payment from another account would move money the board cannot attribute.
+      if (expectedPayer && verified.payer !== expectedPayer) return { ok: false, error: `the payment must come from the poster's account ${expectedPayer}` };
       const settled = await resourceServer.settlePayment(payload, req);
       if (!settled.success) return { ok: false, error: settled.errorMessage ?? settled.errorReason ?? "settlement failed" };
       return { ok: true, tx: settled.transaction, payer: settled.payer, responseHeader: encodePaymentResponseHeader(settled) };

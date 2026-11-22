@@ -19,6 +19,13 @@ export interface Submission {
   full: string;
 }
 
+export interface SettledPayment {
+  tx: string;
+  payee: string;
+  amount: bigint;
+  recorded: boolean;
+}
+
 export interface BountyFilter {
   status?: string;
   kind?: BountyKind;
@@ -47,6 +54,7 @@ export class BoardStore {
       CREATE TABLE IF NOT EXISTS escrow_candidates (id INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS escrow_transfers (key TEXT PRIMARY KEY, json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deposits (tx TEXT PRIMARY KEY, seq INTEGER NOT NULL, json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS x402_payments (bounty_id INTEGER PRIMARY KEY, json TEXT NOT NULL);
     `);
     this.escrow = this.escrowStore();
   }
@@ -96,6 +104,22 @@ export class BoardStore {
   latestSubmission(bountyId: bigint): Submission | null {
     const row = this.db.prepare("SELECT json FROM submissions WHERE bounty_id = ? ORDER BY seq DESC LIMIT 1").get(bountyId) as { json: string } | undefined;
     return row ? dec<Submission>(row.json) : null;
+  }
+
+  /** An x402 payment that settled for a bounty, kept until (and after) it is recorded on chain. */
+  putSettledPayment(bountyId: bigint, p: SettledPayment) {
+    this.db.prepare("INSERT OR REPLACE INTO x402_payments (bounty_id, json) VALUES (?, ?)").run(bountyId, enc(p));
+  }
+
+  settledPayment(bountyId: bigint): SettledPayment | null {
+    const row = this.db.prepare("SELECT json FROM x402_payments WHERE bounty_id = ?").get(bountyId) as { json: string } | undefined;
+    return row ? dec<SettledPayment>(row.json) : null;
+  }
+
+  unrecordedPayments(): { bountyId: bigint; payment: SettledPayment }[] {
+    return (this.db.prepare("SELECT bounty_id, json FROM x402_payments").all() as { bounty_id: number | bigint; json: string }[])
+      .map((r) => ({ bountyId: BigInt(r.bounty_id), payment: dec<SettledPayment>(r.json) }))
+      .filter((x) => !x.payment.recorded);
   }
 
   recordEvents(tx: string, events: BoardEvent[], at: number) {
