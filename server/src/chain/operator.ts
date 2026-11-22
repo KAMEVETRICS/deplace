@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AccountAddress,
   CcdAmount,
@@ -112,14 +113,17 @@ export class Operator {
         .addMetadata({ sender: this.sender(), nonce, expiry })
         .build();
       const signed = await Transaction.signAndFinalize(tx, this.wallet.signer);
-      const hash = Buffer.from(Transaction.getAccountTransactionHash(signed)).toString("hex");
+      // The node names a transaction by the SHA-256 of the block item it receives. web-sdk 12's
+      // Transaction.getAccountTransactionHash leaves out the block item kind byte for version 0
+      // transactions, so its hash is never found on chain.
+      const hash = createHash("sha256").update(Transaction.serializeBlockItem(signed)).digest("hex");
       const timer = setTimeout(release, 30_000);
       return {
         hash,
         expiresAt: Number(expiry.expiryEpochSeconds) * 1000,
         submit: async () => {
           try {
-            await this.client.sendTransaction(signed);
+            return TransactionHash.toHexString(await this.client.sendTransaction(signed));
           } finally {
             clearTimeout(timer);
             release();

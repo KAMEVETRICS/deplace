@@ -40,6 +40,8 @@ class FakeChain implements EscrowChain {
   payouts: [bigint, { to: string; amount: bigint; tx: string }[]][] = [];
   refunds: [bigint, string][] = [];
   failRecordOnce = false;
+  /** When set, the node names a sent transfer by another hash than the one computed before sending. */
+  renameSent: ((hash: string) => string) | null = null;
   private n = 100;
 
   async bounty(id: bigint) {
@@ -60,8 +62,10 @@ class FakeChain implements EscrowChain {
       hash,
       expiresAt: 10_000,
       submit: async () => {
-        this.sent.push({ to, amount, memo, hash });
-        this.status.set(hash, { state: "pending" });
+        const named = this.renameSent ? this.renameSent(hash) : hash;
+        this.sent.push({ to, amount, memo, hash: named });
+        this.status.set(named, { state: "pending" });
+        return named;
       },
     };
   }
@@ -250,6 +254,20 @@ describe("escrow payouts and refunds", () => {
     now = 10_000 + 5 * 60_000 + 1; // expiry plus the margin
     await worker().tick();
     expect(chain.sent.map((s) => s.hash)).toEqual([TX(100), TX(101)]);
+  });
+
+  it("trusts the hash the node reports for a sent transfer, so a landed payout is never sent twice", async () => {
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
+    store.addCandidate(1n);
+    chain.renameSent = () => "ee".repeat(32); // the node names the transaction differently
+    const w = worker();
+    await w.tick();
+    expect(w.health().failures).toEqual([{ id: 1n, reason: expect.stringMatching(/hash/), at: 1_000 }]);
+    chain.finalizeAll();
+    now = 10_000 + 60 * 60_000; // long after the computed hash's expiry and margin
+    await w.tick();
+    expect(chain.sent).toHaveLength(1);
+    expect(chain.payouts).toEqual([[1n, [{ to: WORKER, amount: 100n, tx: "ee".repeat(32) }]]]);
   });
 
   it("pays a contest winner", async () => {

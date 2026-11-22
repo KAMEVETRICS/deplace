@@ -26,7 +26,8 @@ export interface PreparedTransfer {
   hash: string;
   /** Unix ms after which the transaction can no longer be included. */
   expiresAt: number;
-  submit(): Promise<void>;
+  /** Sends it; resolves to the hash the node reports for it. */
+  submit(): Promise<string>;
 }
 
 export interface EscrowChain {
@@ -267,7 +268,13 @@ export class EscrowWorker {
     }
     const p = await this.o.chain.prepareTransfer(to, amount, memo);
     this.o.store.putTransfer({ key, hash: p.hash, amount, expiresAt: p.expiresAt });
-    await p.submit();
+    const named = await p.submit();
+    if (named !== p.hash) {
+      // Track the transfer by the node's name for it: under the computed hash it would look
+      // lost once expired, and be sent a second time.
+      this.o.store.putTransfer({ key, hash: named, amount, expiresAt: p.expiresAt });
+      this.fail(id, `the node named transfer ${named}, not the computed ${p.hash}; tracking the node's hash`);
+    }
     return null;
   }
 
