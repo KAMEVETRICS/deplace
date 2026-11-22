@@ -8,6 +8,7 @@ import {
   decodeSplit,
   decodeStats,
   encodeClaim,
+  encodeInit,
   encodePost,
   encodeRecordPayout,
   encodeU64,
@@ -142,6 +143,22 @@ describe("codec", () => {
       paymentWindowMs: 120_000n,
       nextId: 5n,
     });
+  });
+
+  it("encodes init parameters as the config layout without next_id", () => {
+    const init = encodeInit({
+      admin: acct(1),
+      operator: acct(2),
+      attestorHex: "aa".repeat(32),
+      registry: { index: 12802n, subindex: 0n },
+      rewardToken: "EUDemo",
+      reviewWindowMs: 60_000n,
+      paymentWindowMs: 120_000n,
+    });
+    expect(hex(init)).toBe(
+      "01".repeat(32) + "02".repeat(32) + "aa".repeat(32) + "0232000000000000" + "0000000000000000" +
+        "06000000" + Buffer.from("EUDemo").toString("hex") + "60ea000000000000" + "c0d4010000000000",
+    );
   });
 
   it("names contract reject codes (same table as tests/codec.rs)", () => {

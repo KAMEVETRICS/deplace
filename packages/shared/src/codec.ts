@@ -354,6 +354,30 @@ export function encodeIdEntry(id: bigint, entryId: number): Uint8Array {
   return w.done();
 }
 
+/** InitParams: the ConfigView layout without next_id. */
+export function encodeInit(p: {
+  admin: string;
+  operator: string;
+  attestorHex: string;
+  registry: { index: bigint; subindex: bigint };
+  rewardToken: string;
+  reviewWindowMs: bigint;
+  paymentWindowMs: bigint;
+}): Uint8Array {
+  const w = new Writer();
+  w.account(p.admin);
+  w.account(p.operator);
+  w.hex(p.attestorHex, 32, "attestor public key");
+  w.u64(p.registry.index);
+  w.u64(p.registry.subindex);
+  const token = Buffer.from(p.rewardToken, "utf8");
+  w.u32(token.length);
+  w.hex(token.toString("hex"), token.length, "reward token");
+  w.u64(p.reviewWindowMs);
+  w.u64(p.paymentWindowMs);
+  return w.done();
+}
+
 export function encodeRecordPayout(id: bigint, payouts: { to: string; amount: bigint; tx: string }[]): Uint8Array {
   const w = new Writer();
   w.u64(id);
