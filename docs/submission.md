@@ -33,7 +33,7 @@ The agent has its own spending rails and does not rely on the board for them. It
 
 - Public repository: _to add_
 - Demo video (3 minutes): _to add_ (script: [demo-script.md](demo-script.md))
-- CCDExplorer, deplace contract: _to add after deploy_ (`https://ccdexplorer.io/testnet/instance/<index>/0`)
+- CCDExplorer, deplace contract: https://ccdexplorer.io/testnet/instance/13123/0
 - CCDExplorer, reference agent: _to add after registration_ (`https://ccdexplorer.io/testnet/token/12802/0/<tokenIdHex>`)
 - End-to-end transactions: [e2e-run.md](e2e-run.md)
 

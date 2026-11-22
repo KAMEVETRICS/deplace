@@ -7,6 +7,7 @@
 // Writes CONTRACT_INDEX into .env and prints the CCDExplorer links.
 import "../server/src/env-init.js";
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   AccountAddress,
@@ -20,7 +21,7 @@ import {
   TransactionHash,
 } from "@concordium/web-sdk";
 import { encodeInit, instanceLink, loadConfig, txLink } from "@deplace/shared";
-import { grpcClient, bigintJson } from "../server/src/chain/grpc.js";
+import { grpcClient, bigintJson, isNotFound } from "../server/src/chain/grpc.js";
 import { loadOrCreateAttestorSeed, loadWallet } from "../server/src/chain/wallet.js";
 import { Attestor } from "../server/src/identity/attestor.js";
 
@@ -47,17 +48,30 @@ async function send(build: (m: Meta) => Transaction.Signable) {
   return (await client.waitForTransactionFinalization(hash)).summary as any;
 }
 
-console.log(`Deploying ${MODULE} from operator ${operator.address}`);
-const deployed = await send((m) => Transaction.deployModule({ source: new Uint8Array(readFileSync(MODULE)) }).addMetadata(m).build());
-let moduleRef: ModuleReference.Type;
-if (deployed.transactionType === "failed") {
-  if (deployed.rejectReason?.tag !== "ModuleHashAlreadyExists") throw new Error(`deploy failed: ${JSON.stringify(deployed.rejectReason, bigintJson)}`);
-  moduleRef = deployed.rejectReason.contents;
-  console.log("  module already on chain, reusing it");
-} else {
-  moduleRef = deployed.moduleDeployed.contents;
+// A module's reference is the SHA-256 of its versioned bytes, so it is known before deploying.
+// (The finalized summary reports it as a plain hex string, not a ModuleReference.)
+const source = new Uint8Array(readFileSync(MODULE));
+const moduleRef = ModuleReference.fromHexString(createHash("sha256").update(source).digest("hex"));
+
+async function onChain(ref: ModuleReference.Type): Promise<boolean> {
+  try {
+    await client.getModuleSource(ref);
+    return true;
+  } catch (e) {
+    if (isNotFound(e)) return false;
+    throw e;
+  }
 }
-console.log(`  module ${ModuleReference.toHexString(moduleRef)}`);
+
+// Deploying costs hundreds of CCD (by size), and a repeat deploy of the same module only fails.
+if (await onChain(moduleRef)) {
+  console.log(`Module ${ModuleReference.toHexString(moduleRef)} is already on chain, reusing it`);
+} else {
+  console.log(`Deploying ${MODULE} from operator ${operator.address}`);
+  const deployed = await send((m) => Transaction.deployModule({ source }).addMetadata(m).build());
+  if (deployed.transactionType === "failed") throw new Error(`deploy failed: ${JSON.stringify(deployed.rejectReason, bigintJson)}`);
+  console.log(`  module ${ModuleReference.toHexString(moduleRef)}`);
+}
 
 console.log(`Initializing deplace (review window ${reviewWindowMs} ms, payment window ${paymentWindowMs} ms)`);
 const init = await send((m) =>
@@ -84,7 +98,8 @@ const init = await send((m) =>
     .build(),
 );
 if (init.transactionType === "failed") throw new Error(`init failed: ${JSON.stringify(init.rejectReason, bigintJson)}`);
-const address = init.contractInitialized.address;
+const address = init.contractInitialized?.address as { index: bigint; subindex: bigint } | undefined;
+if (address?.index === undefined) throw new Error(`init went through but no instance address in the summary: ${JSON.stringify(init, bigintJson)}`);
 console.log(`  instance <${address.index},${address.subindex}>  ${instanceLink(address.index, address.subindex)}`);
 
 const env = existsSync(".env") ? readFileSync(".env", "utf8") : readFileSync(".env.example", "utf8");

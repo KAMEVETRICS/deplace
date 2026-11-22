@@ -8,7 +8,7 @@ const client = grpc();
 const tokenId = TokenId.fromString(process.env.REWARD_TOKEN_ID ?? "EUDemo");
 const token = await Token.fromId(client, tokenId);
 const decimals = token.info.state.decimals;
-console.log(`token ${TokenId.toString(tokenId)}: decimals=${decimals}`);
+console.log(`token ${tokenId.value}: decimals=${decimals}`);
 
 const poster = loadWallet("poster");
 const worker = loadWallet("worker-agent");
