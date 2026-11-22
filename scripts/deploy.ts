@@ -36,9 +36,11 @@ const paymentWindowMs = demo ? BigInt(process.env.DEMO_PAYMENT_WINDOW_MS ?? 180_
 const MODULE = "dist/bounty_board.wasm.v1";
 if (!existsSync(MODULE)) throw new Error(`${MODULE} missing: run scripts/build-contract.ps1 first`);
 
-async function send(tx: ReturnType<typeof Transaction.deployModule> | ReturnType<typeof Transaction.initContract>) {
+type Meta = { sender: AccountAddress.Type; nonce: Awaited<ReturnType<typeof client.getNextAccountNonce>>["nonce"]; expiry: TransactionExpiry.Type };
+
+async function send(build: (m: Meta) => Transaction.Signable) {
   const { nonce } = await client.getNextAccountNonce(sender);
-  const signable = tx.addMetadata({ sender, nonce, expiry: TransactionExpiry.futureMinutes(5) }).build();
+  const signable = build({ sender, nonce, expiry: TransactionExpiry.futureMinutes(5) });
   const hash = await client.sendTransaction(await Transaction.signAndFinalize(signable, operator.signer));
   const hex = TransactionHash.toHexString(hash);
   console.log(`  tx ${txLink(hex)}`);
@@ -46,7 +48,7 @@ async function send(tx: ReturnType<typeof Transaction.deployModule> | ReturnType
 }
 
 console.log(`Deploying ${MODULE} from operator ${operator.address}`);
-const deployed = await send(Transaction.deployModule({ source: new Uint8Array(readFileSync(MODULE)) }));
+const deployed = await send((m) => Transaction.deployModule({ source: new Uint8Array(readFileSync(MODULE)) }).addMetadata(m).build());
 let moduleRef: ModuleReference.Type;
 if (deployed.transactionType === "failed") {
   if (deployed.rejectReason?.tag !== "ModuleHashAlreadyExists") throw new Error(`deploy failed: ${JSON.stringify(deployed.rejectReason, bigintJson)}`);
@@ -58,7 +60,7 @@ if (deployed.transactionType === "failed") {
 console.log(`  module ${ModuleReference.toHexString(moduleRef)}`);
 
 console.log(`Initializing bounty_board (review window ${reviewWindowMs} ms, payment window ${paymentWindowMs} ms)`);
-const init = await send(
+const init = await send((m) =>
   Transaction.initContract(
     {
       amount: CcdAmount.zero(),
@@ -77,7 +79,9 @@ const init = await send(
       ),
     },
     Energy.create(30_000),
-  ),
+  )
+    .addMetadata(m)
+    .build(),
 );
 if (init.transactionType === "failed") throw new Error(`init failed: ${JSON.stringify(init.rejectReason, bigintJson)}`);
 const address = init.contractInitialized.address;
