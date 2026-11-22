@@ -122,6 +122,10 @@ export class BoardService {
     return this.d.config;
   }
 
+  isOnAllowList(account: string): Promise<boolean> {
+    return this.d.isOnAllowList(account);
+  }
+
   // --- auth -------------------------------------------------------------------
 
   challenge(subject: { account?: string; badge?: string }) {
