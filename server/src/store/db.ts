@@ -42,7 +42,7 @@ export class BoardStore {
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS bounties (id INTEGER PRIMARY KEY, json TEXT NOT NULL, status TEXT NOT NULL, kind TEXT NOT NULL, funding TEXT NOT NULL, poster TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS specs (hash TEXT PRIMARY KEY, json TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS submissions (work_hash TEXT PRIMARY KEY, json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS submissions (work_hash TEXT PRIMARY KEY, bounty_id INTEGER NOT NULL, seq INTEGER NOT NULL, json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (tx TEXT NOT NULL, idx INTEGER NOT NULL, bounty_id INTEGER, at INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (tx, idx));
       CREATE TABLE IF NOT EXISTS escrow_candidates (id INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS escrow_transfers (key TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -82,11 +82,19 @@ export class BoardStore {
   }
 
   putSubmission(s: Submission) {
-    this.db.prepare("INSERT OR REPLACE INTO submissions (work_hash, json) VALUES (?, ?)").run(s.workHash, enc(s));
+    this.db
+      .prepare("INSERT OR REPLACE INTO submissions (work_hash, bounty_id, seq, json) VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM submissions), ?)")
+      .run(s.workHash, s.bountyId, enc(s));
   }
 
   submission(workHash: string): Submission | null {
     const row = this.db.prepare("SELECT json FROM submissions WHERE work_hash = ?").get(workHash) as { json: string } | undefined;
+    return row ? dec<Submission>(row.json) : null;
+  }
+
+  /** The most recent submission stored for a bounty (re-fetching work after payment). */
+  latestSubmission(bountyId: bigint): Submission | null {
+    const row = this.db.prepare("SELECT json FROM submissions WHERE bounty_id = ? ORDER BY seq DESC LIMIT 1").get(bountyId) as { json: string } | undefined;
     return row ? dec<Submission>(row.json) : null;
   }
 

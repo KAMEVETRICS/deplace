@@ -227,7 +227,8 @@ export class BoardService {
 
   // --- working ----------------------------------------------------------------
 
-  private async live(id: bigint): Promise<Bounty> {
+  /** Reads the bounty from the chain (not the cache) and refreshes the cache. */
+  async live(id: bigint): Promise<Bounty> {
     const b = await this.d.chain.view(id);
     if (!b) throw new BoardError(404, `no bounty ${id}`);
     this.d.store.upsertBounty(b);
@@ -313,6 +314,40 @@ export class BoardService {
       default:
         return null;
     }
+  }
+
+  /**
+   * The full work the poster may receive now, checked against the hash on chain.
+   * Escrowed: after acceptance or award. Not funded: also after acceptance or award, but
+   * the caller (x402 route) only releases it once the payment settles.
+   */
+  async releasableWork(b: Bounty): Promise<{ workHash: string; worker: string; full: string; hashMatches: true }[]> {
+    const s = b.status;
+    let hashes: { workHash: string; worker: string }[];
+    if (s.type === "Accepted" || s.type === "AcceptedUnpaid") hashes = [{ workHash: s.workHash, worker: s.worker }];
+    else if (s.type === "Awarded") {
+      const e = await this.d.chain.entry(b.id, s.entryId);
+      if (!e) throw new Error(`entry ${s.entryId} of bounty ${b.id} missing on chain`);
+      hashes = [{ workHash: e.workHash, worker: e.worker }];
+    } else if (s.type === "Splitting" || (s.type === "Paid" && b.kind === "Contest")) {
+      hashes = [];
+      for (let i = 0; i < b.entryCount; i++) {
+        const e = await this.d.chain.entry(b.id, i);
+        if (e) hashes.push({ workHash: e.workHash, worker: e.worker });
+      }
+    } else if (s.type === "Paid") {
+      const latest = this.d.store.latestSubmission(b.id);
+      hashes = latest ? [{ workHash: latest.workHash, worker: latest.worker }] : [];
+    } else {
+      throw new BoardError(409, `the work is released after acceptance; bounty ${b.id} is ${s.type}`);
+    }
+    return hashes.map((h) => {
+      const sub = this.d.store.submission(h.workHash);
+      if (!sub) throw new Error(`work ${h.workHash} of bounty ${b.id} is not stored on this board`);
+      // Never hand out bytes that differ from what was committed on chain.
+      if (sha256(sub.full) !== h.workHash) throw new Error(`stored work for ${h.workHash} does not match its on-chain hash`);
+      return { workHash: h.workHash, worker: h.worker, full: sub.full, hashMatches: true as const };
+    });
   }
 
   /** Fallback when x402 is unavailable: a sponsored direct transfer, funding escrow or paying the worker. */
