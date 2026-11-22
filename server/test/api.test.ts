@@ -325,6 +325,18 @@ describe("relay and reads", () => {
     expect(r.body.posterProfile.identity.kind).toBe("person");
   });
 
+  it("publishes the board's public configuration", async () => {
+    const r = await call("GET", "/config");
+    expect(r.body).toEqual({
+      rewardToken: "EUDemo",
+      decimals: 6,
+      contract: { index: "13001", subindex: "0" },
+      escrowAccount: ESCROW,
+      sponsorAccount: SPONSOR,
+      faucetUrl: "https://faucet.example",
+    });
+  });
+
   it("lists bounties with filters", async () => {
     chainBounties.set(0n, bounty(0n));
     chainBounties.set(1n, bounty(1n, { kind: "Contest", funding: { type: "Escrowed", fundingTx: "11".repeat(32) } }));

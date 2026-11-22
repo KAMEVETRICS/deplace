@@ -31,6 +31,18 @@ export function createApp({ service, extraRouters = [], mounts = [], health }: A
     res.json(await service.login(req.body ?? {}));
   });
 
+  app.get("/config", (_req, res) => {
+    const c = service.config;
+    res.json({
+      rewardToken: c.rewardTokenId,
+      decimals: c.tokenDecimals,
+      contract: c.contract,
+      escrowAccount: c.escrowAccount,
+      sponsorAccount: c.sponsorAddress,
+      faucetUrl: c.faucetUrl,
+    });
+  });
+
   app.get("/bounties", async (req, res) => {
     const q = req.query;
     const f = {
