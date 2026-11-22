@@ -80,7 +80,7 @@ describe("syncFromChain", () => {
     const s = new BoardStore(dbPath());
     const chain = {
       all: async () => [
-        bounty(0n, { funding: { type: "Escrowed", fundingTx: "11".repeat(32) }, status: { type: "Accepted", worker: "w", at: 5n } }),
+        bounty(0n, { funding: { type: "Escrowed", fundingTx: "11".repeat(32) }, status: { type: "Accepted", worker: "w", at: 5n, workHash: "cd".repeat(32) } }),
         bounty(1n),
         bounty(2n, { funding: { type: "Escrowed", fundingTx: "11".repeat(32) }, status: { type: "Paid" } }),
       ],

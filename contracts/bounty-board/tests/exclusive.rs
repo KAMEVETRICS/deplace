@@ -217,7 +217,7 @@ fn mark_unpaid_requires_not_funded_and_window() {
     env.advance(PAYMENT_MS);
     let r = env.call(OTHER, "mark_unpaid", &id).unwrap();
     assert_eq!(events(&r), vec![Event::MarkedUnpaid { id }]);
-    assert_eq!(env.bounty(id).status, Status::AcceptedUnpaid { worker: WORKER });
+    assert_eq!(env.bounty(id).status, Status::AcceptedUnpaid { worker: WORKER, work_hash: WORK });
     assert_eq!(env.stats(POSTER).unpaid, 1);
 
     // A late payment still clears the bounty; the unpaid mark stays on the record.
@@ -283,4 +283,12 @@ fn confirm_funding_rules() {
     let id = env.post(Kind::Exclusive, 100);
     env.claim(id, WORKER).unwrap();
     env.fund(id).unwrap();
+}
+
+#[test]
+fn acceptance_records_the_accepted_work_hash() {
+    let mut env = Env::new();
+    let id = submitted(&mut env, true);
+    env.call(POSTER, "accept", &id).unwrap();
+    assert!(matches!(env.bounty(id).status, Status::Accepted { worker: WORKER, work_hash: WORK, .. }));
 }

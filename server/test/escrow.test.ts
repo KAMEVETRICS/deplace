@@ -161,7 +161,7 @@ describe("escrow deposits", () => {
   });
 
   it("refuses funding once the bounty is accepted", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, { type: "NotFunded" }));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, { type: "NotFunded" }));
     deposit(TX(5));
     expect((await worker().noteDeposit(TX(5))).confirmed).toBe(false);
   });
@@ -169,7 +169,7 @@ describe("escrow deposits", () => {
 
 describe("escrow payouts and refunds", () => {
   it("pays the worker of an accepted escrowed bounty and records it", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, escrowed));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
     store.addCandidate(1n);
     const w = worker();
     await w.tick();
@@ -183,7 +183,7 @@ describe("escrow payouts and refunds", () => {
   });
 
   it("restart_after_transfer_before_record_does_not_double_pay", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, escrowed));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
     store.addCandidate(1n);
     await worker().tick(); // transfer submitted
     chain.finalizeAll();
@@ -196,7 +196,7 @@ describe("escrow payouts and refunds", () => {
   });
 
   it("payout_failure_not_allow_listed_leaves_accepted", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, escrowed));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
     store.addCandidate(1n);
     const w = worker();
     await w.tick();
@@ -214,7 +214,7 @@ describe("escrow payouts and refunds", () => {
   });
 
   it("resends a transfer that expired without reaching the chain", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, escrowed));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, escrowed));
     store.addCandidate(1n);
     await worker().tick();
     chain.status.delete(TX(100)); // the node never saw it
@@ -277,7 +277,7 @@ describe("escrow payouts and refunds", () => {
   });
 
   it("leaves not-funded bounties alone (they are paid on delivery through x402)", async () => {
-    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n }, { type: "NotFunded" }));
+    chain.bounties.set(1n, bounty(1n, { type: "Accepted", worker: WORKER, at: 0n, workHash: "cd".repeat(32) }, { type: "NotFunded" }));
     store.addCandidate(1n);
     await worker().tick();
     expect(chain.sent).toEqual([]);

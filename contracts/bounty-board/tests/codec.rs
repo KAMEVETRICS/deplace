@@ -71,6 +71,14 @@ fn event_vectors_match_typescript() {
 }
 
 #[test]
+fn accepted_status_vectors_match_typescript() {
+    let accepted = Status::Accepted { worker: AccountAddress([4; 32]), at: ts(9), work_hash: HashSha2256([0xcd; 32]) };
+    assert_eq!(bytes(&accepted), format!("03{}0900000000000000{}", "04".repeat(32), "cd".repeat(32)));
+    let unpaid = Status::AcceptedUnpaid { worker: AccountAddress([4; 32]), work_hash: HashSha2256([0xcd; 32]) };
+    assert_eq!(bytes(&unpaid), format!("07{}{}", "04".repeat(32), "cd".repeat(32)));
+}
+
+#[test]
 fn error_codes_match_typescript() {
     // packages/shared/src/codec.ts CONTRACT_ERRORS: code = -(index + 1).
     let code = |e: Error| -> i32 { concordium_std::Reject::from(e).error_code.get() };

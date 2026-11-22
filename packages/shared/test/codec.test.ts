@@ -66,6 +66,23 @@ describe("codec", () => {
     expect(decodeOptionBounty(bytes("00"))).toBeNull();
   });
 
+  it("decodes Accepted and AcceptedUnpaid with the accepted work hash", () => {
+    const submitted = "02" + "04".repeat(32) + "00" + "cd".repeat(32) + "0900000000000000";
+    const accepted = "03" + "04".repeat(32) + "0900000000000000" + "cd".repeat(32);
+    const unpaid = "07" + "04".repeat(32) + "cd".repeat(32);
+    expect(decodeOptionBounty(bytes(BOUNTY_VECTOR.replace(submitted, accepted)))?.status).toEqual({
+      type: "Accepted",
+      worker: acct(4),
+      at: 9n,
+      workHash: "cd".repeat(32),
+    });
+    expect(decodeOptionBounty(bytes(BOUNTY_VECTOR.replace(submitted, unpaid)))?.status).toEqual({
+      type: "AcceptedUnpaid",
+      worker: acct(4),
+      workHash: "cd".repeat(32),
+    });
+  });
+
   it("refuses trailing bytes", () => {
     expect(() => decodeOptionBounty(bytes(BOUNTY_VECTOR + "00"))).toThrow(/trailing/);
   });

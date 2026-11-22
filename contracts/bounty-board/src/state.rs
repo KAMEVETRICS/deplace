@@ -26,12 +26,13 @@ pub enum Status {
     Open,
     Claimed { worker: AccountAddress, agent: Option<u64> },
     Submitted { worker: AccountAddress, agent: Option<u64>, work_hash: HashSha2256, at: Timestamp },
-    Accepted { worker: AccountAddress, at: Timestamp },
+    /// `work_hash` anchors exactly which submission was accepted.
+    Accepted { worker: AccountAddress, at: Timestamp, work_hash: HashSha2256 },
     Awarded { entry_id: u32, at: Timestamp },
     Splitting { at: Timestamp },
     Paid,
     /// Accepted or awarded, not funded, and not paid within the payment window. Keeps the payee.
-    AcceptedUnpaid { worker: AccountAddress },
+    AcceptedUnpaid { worker: AccountAddress, work_hash: HashSha2256 },
     RejectedFinal,
     NoAward,
     Expired,

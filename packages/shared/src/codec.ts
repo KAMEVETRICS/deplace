@@ -111,7 +111,7 @@ function status(r: Reader): BountyStatus {
     case 2:
       return { type: "Submitted", worker: r.account(), agent: r.opt(() => r.u64()), workHash: r.hex(32), at: r.u64() };
     case 3:
-      return { type: "Accepted", worker: r.account(), at: r.u64() };
+      return { type: "Accepted", worker: r.account(), at: r.u64(), workHash: r.hex(32) };
     case 4:
       return { type: "Awarded", entryId: r.u32(), at: r.u64() };
     case 5:
@@ -119,7 +119,7 @@ function status(r: Reader): BountyStatus {
     case 6:
       return { type: "Paid" };
     case 7:
-      return { type: "AcceptedUnpaid", worker: r.account() };
+      return { type: "AcceptedUnpaid", worker: r.account(), workHash: r.hex(32) };
     case 8:
       return { type: "RejectedFinal" };
     case 9:

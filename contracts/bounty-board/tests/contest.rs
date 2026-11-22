@@ -165,7 +165,7 @@ fn awarded_but_unpaid_contest_is_marked() {
     assert_eq!(reject_reason(env.call(OTHER, "mark_unpaid", &id)), Error::WindowNotPassed);
     env.advance(PAYMENT_MS);
     env.call(OTHER, "mark_unpaid", &id).unwrap();
-    assert_eq!(env.bounty(id).status, Status::AcceptedUnpaid { worker: WORKER2 });
+    assert_eq!(env.bounty(id).status, Status::AcceptedUnpaid { worker: WORKER2, work_hash: WORK });
     assert_eq!(env.stats(POSTER).unpaid, 1);
 }
 

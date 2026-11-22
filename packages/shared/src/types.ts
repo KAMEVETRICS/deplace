@@ -13,11 +13,11 @@ export type BountyStatus =
   | { type: "Open" }
   | { type: "Claimed"; worker: string; agent: bigint | null }
   | { type: "Submitted"; worker: string; agent: bigint | null; workHash: string; at: bigint }
-  | { type: "Accepted"; worker: string; at: bigint }
+  | { type: "Accepted"; worker: string; at: bigint; workHash: string }
   | { type: "Awarded"; entryId: number; at: bigint }
   | { type: "Splitting"; at: bigint }
   | { type: "Paid" }
-  | { type: "AcceptedUnpaid"; worker: string }
+  | { type: "AcceptedUnpaid"; worker: string; workHash: string }
   | { type: "RejectedFinal" }
   | { type: "NoAward" }
   | { type: "Expired" }

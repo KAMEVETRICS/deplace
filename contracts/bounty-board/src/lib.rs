@@ -272,11 +272,11 @@ fn accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
     ensure!(sender_account(ctx)? == b.poster, Error::Unauthorized);
-    let worker = match b.status {
-        Status::Submitted { worker, .. } => worker,
+    let (worker, work_hash) = match b.status {
+        Status::Submitted { worker, work_hash, .. } => (worker, work_hash),
         _ => return Err(Error::WrongStatus),
     };
-    b.status = Status::Accepted { worker, at: now(ctx) };
+    b.status = Status::Accepted { worker, at: now(ctx), work_hash };
     store(host, b);
     logger.log(&Event::Accepted { id, worker, auto: false })?;
     Ok(())
@@ -316,14 +316,14 @@ fn reject(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
 fn auto_accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
-    let (worker, at) = match b.status {
-        Status::Submitted { worker, at, .. } => (worker, at),
+    let (worker, at, work_hash) = match b.status {
+        Status::Submitted { worker, at, work_hash, .. } => (worker, at, work_hash),
         _ => return Err(Error::WrongStatus),
     };
     ensure!(matches!(b.funding, Funding::Escrowed { .. }), Error::NotEscrowed);
     let t = now(ctx);
     ensure!(t >= plus(at, host.state().review_window_ms), Error::WindowNotPassed);
-    b.status = Status::Accepted { worker, at: t };
+    b.status = Status::Accepted { worker, at: t, work_hash };
     store(host, b);
     logger.log(&Event::Accepted { id, worker, auto: true })?;
     Ok(())
@@ -354,14 +354,17 @@ fn mark_unpaid(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
     ensure!(b.funding == Funding::NotFunded, Error::WrongStatus);
-    let (worker, since) = match b.status {
-        Status::Accepted { worker, at } => (worker, at),
-        Status::Awarded { entry_id, at } => (entry_worker(host, id, entry_id)?, at),
+    let (worker, since, work_hash) = match b.status {
+        Status::Accepted { worker, at, work_hash } => (worker, at, work_hash),
+        Status::Awarded { entry_id, at } => {
+            let e = host.state().entries.get(&(id, entry_id)).map(|e| e.clone()).ok_or(Error::NotFound)?;
+            (e.worker, at, e.work_hash)
+        }
         _ => return Err(Error::WrongStatus),
     };
     ensure!(now(ctx) >= plus(since, host.state().payment_window_ms), Error::WindowNotPassed);
     let poster = b.poster;
-    b.status = Status::AcceptedUnpaid { worker };
+    b.status = Status::AcceptedUnpaid { worker, work_hash };
     store(host, b);
     bump(host, poster, |s| s.unpaid += 1);
     logger.log(&Event::MarkedUnpaid { id })?;
@@ -379,7 +382,7 @@ fn record_payout(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logg
     let mut b = load(host, p.id)?;
     let single = |to: AccountAddress| p.payouts.len() == 1 && p.payouts[0].to == to && p.payouts[0].amount >= b.reward;
     let valid = match b.status {
-        Status::Accepted { worker, .. } | Status::AcceptedUnpaid { worker } => single(worker),
+        Status::Accepted { worker, .. } | Status::AcceptedUnpaid { worker, .. } => single(worker),
         Status::Awarded { entry_id, .. } => single(entry_worker(host, p.id, entry_id)?),
         Status::Splitting { .. } => {
             let shares = split_shares(host, &b)?;
