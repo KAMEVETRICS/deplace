@@ -50,6 +50,7 @@ let relayOutcome: { txHash: string; summary: unknown; sponsor: string | null };
 let deposits: string[];
 let observed: string[];
 let base = "";
+let service: BoardService;
 let close = () => {};
 let unsponsored = false;
 
@@ -119,7 +120,7 @@ beforeEach(async () => {
   observed = [];
   unsponsored = false;
   relayOutcome = { txHash: "aa".repeat(32), summary: {}, sponsor: SPONSOR };
-  const service = new BoardService(deps());
+  service = new BoardService(deps());
   const app = createApp({ service });
   const server = app.listen(0);
   await new Promise((r) => server.once("listening", r));
@@ -305,6 +306,14 @@ describe("relay and reads", () => {
     expect(submitted).toEqual([]); // nothing re-sent
     expect((await call("GET", "/bounties/0")).body.events[0]).toMatchObject({ tx: "cc".repeat(32) });
     expect((await call("POST", "/tx/observe", { txHash: "nope" })).status).toBe(400);
+  });
+
+  it("records the operator's own payout transactions in the bounty's trail", async () => {
+    chainBounties.set(0n, bounty(0n, { status: { type: "Paid" } }));
+    await service.noteOperatorTransaction("dd".repeat(32), { __events: [{ type: "PayoutRecorded", id: 0n, to: worker.address, amount: 2_000_000n, tx: "ee".repeat(32) }] });
+    const detail = await call("GET", "/bounties/0");
+    expect(detail.body.events.map((e: any) => e.event.type)).toEqual(["PayoutRecorded"]);
+    expect(detail.body.bounty.status.type).toBe("Paid");
   });
 
   it("notes a funding transfer for the escrow worker", async () => {

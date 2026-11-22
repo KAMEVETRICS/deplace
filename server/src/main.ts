@@ -41,7 +41,10 @@ const decimals = await plt.decimals();
 const sponsorWallet = loadWallet(cfg.keyFiles.sponsor);
 const sponsorKey = walletPrivateKey(cfg.keyFiles.sponsor);
 const operatorWallet = loadWallet(cfg.keyFiles.operator);
-const operator = new Operator(client, operatorWallet, contractRef, { tokenId: cfg.rewardTokenId, decimals });
+// The operator's own calls (confirm_funding, record_payout, record_refund) are recorded like relayed ones.
+const operator = new Operator(client, operatorWallet, contractRef, { tokenId: cfg.rewardTokenId, decimals }, (txHash, summary) =>
+  service.noteOperatorTransaction(txHash, summary),
+);
 const attestor = new Attestor(loadOrCreateAttestorSeed(cfg.keyFiles.attestor));
 
 const onChain = await contract.config();

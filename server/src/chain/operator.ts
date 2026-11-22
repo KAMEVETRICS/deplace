@@ -55,6 +55,8 @@ export class Operator {
     readonly wallet: Wallet,
     private readonly contract: ContractRef,
     private readonly reward: { tokenId: string; decimals: number },
+    /** Called with every finalized operator contract call, so its events reach the board's record. */
+    private readonly onFinalized?: (txHash: string, summary: unknown) => Promise<void> | void,
   ) {}
 
   private sender() {
@@ -84,7 +86,9 @@ export class Operator {
     }
     const outcome = await this.client.waitForTransactionFinalization(hash);
     assertSucceeded(entrypoint, outcome.summary);
-    return TransactionHash.toHexString(hash);
+    const hex = TransactionHash.toHexString(hash);
+    await this.onFinalized?.(hex, outcome.summary);
+    return hex;
   }
 
   /**

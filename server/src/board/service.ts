@@ -407,9 +407,9 @@ export class BoardService {
     return { txHash, link: txLink(txHash), events };
   }
 
-  /** For callers outside the relay (x402 settlement, escrow worker) to log events and refresh state. */
-  async noteEvents(txHash: string, events: BoardEvent[]) {
-    this.d.store.recordEvents(txHash, events, this.d.now());
+  /** The operator's own contract calls (confirm_funding, record_payout, record_refund) enter the record here. */
+  async noteOperatorTransaction(txHash: string, summary: unknown) {
+    await this.afterFinalized(txHash, summary);
   }
 
   async refresh(id: bigint) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { accountLink, agentLink, instanceLink, txLink } from "../src/explorer.js";
+import { accountLink, agentLink, formatTokenAmount, instanceLink, txLink } from "../src/explorer.js";
 
 describe("loadConfig", () => {
   it("uses testnet defaults and the fixed Agent Registry", () => {
@@ -26,6 +26,14 @@ describe("loadConfig", () => {
     const cfg = loadConfig({ REVIEW_WINDOW_MS: "300000", PAYMENT_WINDOW_MS: "600000" });
     expect(cfg.reviewWindowMs).toBe(300000n);
     expect(cfg.paymentWindowMs).toBe(600000n);
+  });
+});
+
+describe("formatTokenAmount", () => {
+  it("formats smallest units without trailing zeros", () => {
+    expect(formatTokenAmount(2_500_000n, 6)).toBe("2.5");
+    expect(formatTokenAmount(1n, 6)).toBe("0.000001");
+    expect(formatTokenAmount(0n, 6)).toBe("0");
   });
 });
 
