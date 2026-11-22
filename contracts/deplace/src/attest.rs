@@ -6,9 +6,9 @@
 
 use concordium_std::*;
 
-pub const POST_DOMAIN: &[u8] = b"BountyBoard/v1/post";
-pub const CLAIM_DOMAIN: &[u8] = b"BountyBoard/v1/claim";
-pub const ENTER_DOMAIN: &[u8] = b"BountyBoard/v1/enter";
+pub const POST_DOMAIN: &[u8] = b"Deplace/v1/post";
+pub const CLAIM_DOMAIN: &[u8] = b"Deplace/v1/claim";
+pub const ENTER_DOMAIN: &[u8] = b"Deplace/v1/enter";
 
 /// The board checked the poster's identity (and agent badge, if any) for this spec, with
 /// exactly these terms: the on-chain record cannot differ from what the board showed.

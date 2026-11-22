@@ -12,7 +12,7 @@ import { dirname } from "node:path";
 import { credentials } from "@grpc/grpc-js";
 import { ConcordiumGRPCNodeClient } from "@concordium/web-sdk/nodejs";
 import { AccountAddress, CcdAmount, ContractAddress, Energy, Parameter, ReceiveName, Transaction, TransactionExpiry, TransactionHash } from "@concordium/web-sdk";
-import { agentLink } from "@bounty/shared";
+import { agentLink } from "@deplace/shared";
 import { env, fromRoot } from "./env.js";
 import { loadAgentKeys } from "./signer.js";
 
@@ -75,8 +75,8 @@ const cardText = (r: any): string => (typeof r.card_json === "string" ? r.card_j
 // 1. The card, without a badge yet.
 if (!existsSync(CARD_FILE)) {
   const r = await tool("build_agent_card", {
-    name: "Bounty Board reference worker",
-    description: "Reference worker agent for the Concordium Bounty Board: claims page-facts bounties, fetches the page and reports its title, visible word count and SHA-256.",
+    name: "Deplace reference worker",
+    description: "Reference worker agent for Deplace: claims page-facts bounties, fetches the page and reports its title, visible word count and SHA-256.",
     agent_uri: CARD_URL,
     owner_account: owner,
     skills: [{ id: "page-facts", name: "Page facts", description: "Fetch a public URL and report its title, visible word count and SHA-256.", tags: ["bounty", "web"] }],

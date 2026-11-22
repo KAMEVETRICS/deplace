@@ -36,27 +36,27 @@ describe("BountyContract views", () => {
   const contract = { index: 13001n, subindex: 0n };
 
   it("reads a bounty with the encoded id", async () => {
-    const node = fakeNode({ "bounty_board.view_bounty": BOUNTY_HEX });
+    const node = fakeNode({ "deplace.view_bounty": BOUNTY_HEX });
     const b = await new BountyContract(node.client, contract).view(7n);
     expect(b?.id).toBe(7n);
     expect(b?.status.type).toBe("Submitted");
-    expect(node.calls).toEqual([{ method: "bounty_board.view_bounty", parameter: "0700000000000000" }]);
+    expect(node.calls).toEqual([{ method: "deplace.view_bounty", parameter: "0700000000000000" }]);
   });
 
   it("returns null for a missing bounty", async () => {
-    const node = fakeNode({ "bounty_board.view_bounty": "00" });
+    const node = fakeNode({ "deplace.view_bounty": "00" });
     expect(await new BountyContract(node.client, contract).view(99n)).toBeNull();
   });
 
   it("lists every bounty up to next_id", async () => {
-    const node = fakeNode({ "bounty_board.view_config": CONFIG_HEX("0200000000000000"), "bounty_board.view_bounty": BOUNTY_HEX });
+    const node = fakeNode({ "deplace.view_config": CONFIG_HEX("0200000000000000"), "deplace.view_bounty": BOUNTY_HEX });
     const all = await new BountyContract(node.client, contract).all();
     expect(all).toHaveLength(2);
     expect(node.calls.map((c) => c.parameter)).toEqual(["", "0000000000000000", "0100000000000000"]);
   });
 
   it("names the error when a view is rejected", async () => {
-    const node = fakeNode({ "bounty_board.view_split": { failure: -13 } });
+    const node = fakeNode({ "deplace.view_split": { failure: -13 } });
     await expect(new BountyContract(node.client, contract).split(1n)).rejects.toThrow(/NotFound/);
   });
 });

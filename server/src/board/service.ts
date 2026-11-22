@@ -17,7 +17,7 @@ import {
   type ContractRef,
   type Entry,
   type Stats,
-} from "@bounty/shared";
+} from "@deplace/shared";
 import { classifyAccount, verifyAccountSignature, type AccountInfoLookup } from "../identity/account.js";
 import { verifyAgent } from "../identity/agent.js";
 import type { Attestor } from "../identity/attestor.js";

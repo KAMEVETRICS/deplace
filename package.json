@@ -1,8 +1,8 @@
 {
-  "name": "bounty-board",
+  "name": "deplace",
   "version": "0.1.0",
   "private": true,
-  "description": "Bounty board on Concordium testnet: verified posters, badge-holding agents, PLT rewards, sponsored fees, on-chain audit trail",
+  "description": "Deplace: a bounty board on Concordium testnet for verified people, companies and agents, with PLT rewards, sponsored fees and an on-chain audit trail",
   "type": "module",
   "license": "Apache-2.0",
   "engines": {

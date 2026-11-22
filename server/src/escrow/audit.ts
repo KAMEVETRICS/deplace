@@ -1,4 +1,4 @@
-import type { BoardEvent, Bounty } from "@bounty/shared";
+import type { BoardEvent, Bounty } from "@deplace/shared";
 import type { DepositInfo } from "./worker.js";
 
 export interface AuditInput {

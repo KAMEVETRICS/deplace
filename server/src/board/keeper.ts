@@ -1,10 +1,10 @@
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 
 export type KeeperAction = "auto_accept" | "mark_unpaid" | "split_unawarded" | "no_award" | "expire";
 
 /**
  * The permissionless, time-based contract action now due for a bounty, if any. Mirrors the
- * bounty_board rules so the board's keeper only sends calls the contract will accept:
+ * deplace rules so the board's keeper only sends calls the contract will accept:
  * silent posters cannot trap escrowed work, unpaid promises reach the public record, and
  * unawarded escrowed contests are split among entrants.
  */

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { BoardEvent, Bounty, BountyKind } from "@bounty/shared";
+import type { BoardEvent, Bounty, BountyKind } from "@deplace/shared";
 import type { DepositOutcome, EscrowStore, StoredTransfer } from "../escrow/worker.js";
 
 /** JSON that keeps bigints: {"$n":"123"}. */

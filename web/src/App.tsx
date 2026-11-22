@@ -33,7 +33,7 @@ export function App() {
     <>
       <header className="topbar">
         <a href="#/" className="brand">
-          Bounty Board <span className="muted small">on Concordium testnet</span>
+          Deplace <span className="muted small">on Concordium testnet</span>
         </a>
         <nav className="row gap">
           <a href="#/">Board</a>
@@ -72,7 +72,7 @@ export function App() {
         <Page hash={hash} />
       </main>
       <footer className="container muted small">
-        Escrow is custodial: escrowed rewards sit in the board's operator account and move only as the bounty_board contract's state allows. Protocol-Level Locks replace it once they reach testnet.
+        Escrow is custodial: escrowed rewards sit in the board's operator account and move only as the deplace contract's state allows. Protocol-Level Locks replace it once they reach testnet.
       </footer>
     </>
   );

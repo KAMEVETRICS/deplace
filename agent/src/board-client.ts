@@ -14,7 +14,7 @@ export class BoardToolError extends Error {
 
 /** The board's MCP server over Streamable HTTP. */
 export async function connectBoard(url: string): Promise<Board & { close(): Promise<void> }> {
-  const client = new Client({ name: "bounty-reference-worker", version: "0.1.0" });
+  const client = new Client({ name: "deplace-reference-worker", version: "0.1.0" });
   await client.connect(new StreamableHTTPClientTransport(new URL(url)));
   return {
     async call<T>(name: string, args: Record<string, unknown>): Promise<T> {

@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 import { BoardService, type BoardDeps } from "../../src/board/service.js";
 import { Attestor } from "../../src/identity/attestor.js";
 import { BoardStore } from "../../src/store/db.js";

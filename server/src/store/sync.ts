@@ -1,4 +1,4 @@
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 import type { BoardStore } from "./db.js";
 
 const ESCROW_WORK = new Set(["Accepted", "Awarded", "Splitting", "Cancelled", "Expired", "RejectedFinal"]);

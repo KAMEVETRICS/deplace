@@ -14,7 +14,7 @@ import {
   encodeU64,
 } from "../src/codec.js";
 
-// Golden vectors shared with contracts/bounty-board/tests/codec.rs.
+// Golden vectors shared with contracts/deplace/tests/codec.rs.
 const acct = (fill: number) => AccountAddress.fromBuffer(new Uint8Array(32).fill(fill).buffer).address;
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const bytes = (h: string) => new Uint8Array(Buffer.from(h, "hex"));

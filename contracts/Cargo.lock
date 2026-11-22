@@ -365,15 +365,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bounty-board"
-version = "0.1.0"
-dependencies = [
- "concordium-smart-contract-testing",
- "concordium-std",
- "ed25519-dalek",
-]
-
-[[package]]
 name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -850,6 +841,15 @@ dependencies = [
  "darling_core 0.21.3",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "deplace"
+version = "0.1.0"
+dependencies = [
+ "concordium-smart-contract-testing",
+ "concordium-std",
+ "ed25519-dalek",
 ]
 
 [[package]]

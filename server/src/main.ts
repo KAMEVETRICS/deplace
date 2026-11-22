@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { Router } from "express";
 import { AccountAddress, Transaction, TransactionHash } from "@concordium/web-sdk";
-import { encodeRecordPayout, encodeU64, loadConfig } from "@bounty/shared";
+import { encodeRecordPayout, encodeU64, loadConfig } from "@deplace/shared";
 import { dueAction } from "./board/keeper.js";
 import { agentCardRouter } from "./api/cards.js";
 import { createApp } from "./api/app.js";
@@ -182,7 +182,7 @@ const x402 = gateway
 
 const webDist = join(root, "web", "dist");
 // The module schema lets Wallet for Web show contract parameters before the user signs.
-const schemaFile = join(root, "dist", "bounty_board.schema.b64");
+const schemaFile = join(root, "dist", "deplace.schema.b64");
 const schemaRouter = Router().get("/contract/schema", (_req, res) => {
   if (!existsSync(schemaFile)) {
     res.status(404).json({ error: "schema not built: run scripts/build-contract.ps1" });
@@ -250,7 +250,7 @@ setInterval(loop, 15_000);
 void loop();
 
 app.listen(cfg.port, () => {
-  console.log(`Bounty Board on ${cfg.publicBaseUrl} (port ${cfg.port})`);
+  console.log(`Deplace on ${cfg.publicBaseUrl} (port ${cfg.port})`);
   console.log(`  contract <${contractRef.index},${contractRef.subindex}>  sponsor ${sponsorWallet.address}  escrow/operator ${operatorWallet.address}`);
   console.log(`  MCP: ${cfg.publicBaseUrl}/mcp   x402: ${gateway ? "on" : "off"}`);
 });

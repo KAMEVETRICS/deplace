@@ -221,7 +221,7 @@ export function BountyPage({ id }: { id: string }) {
               ))}
             </ol>
             <a href={d.links.contract} target="_blank" rel="noreferrer" className="small">
-              bounty_board contract on CCDExplorer
+              deplace contract on CCDExplorer
             </a>
           </section>
         </aside>

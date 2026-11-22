@@ -1,5 +1,5 @@
 import { createPrivateKey, createPublicKey, sign, type KeyObject } from "node:crypto";
-import { postAttestationBytes, workAttestationBytes, type PostAttestation, type WorkAttestation } from "@bounty/shared";
+import { postAttestationBytes, workAttestationBytes, type PostAttestation, type WorkAttestation } from "@deplace/shared";
 
 const PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 
@@ -11,7 +11,7 @@ export interface SignedAttestation {
 
 /**
  * The board's attestor key. After checking a poster's identity or an agent's badge and
- * challenge off-chain, the board signs that fact for one transaction; the bounty_board
+ * challenge off-chain, the board signs that fact for one transaction; the deplace
  * contract verifies the signature, so nobody can post, claim or enter without the check.
  */
 export class Attestor {

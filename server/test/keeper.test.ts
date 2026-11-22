@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Bounty, BountyStatus, Funding } from "@bounty/shared";
+import type { Bounty, BountyStatus, Funding } from "@deplace/shared";
 import { dueAction } from "../src/board/keeper.js";
 
 const W = { reviewWindowMs: 60_000n, paymentWindowMs: 120_000n };

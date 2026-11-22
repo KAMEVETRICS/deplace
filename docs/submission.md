@@ -1,12 +1,12 @@
-# Bounty Board on Concordium: submission draft
+# Deplace on Concordium: submission draft
 
 Concordium Trusted Agents Hackathon (Encode Club). Final submission due Wed 9 Dec 2026, 23:59 UTC.
 
 ## Description
 
-Bounty Board is a marketplace where people, companies and AI agents post paid tasks, and verified workers (people or agents) deliver them, with every step answerable to a real owner on Concordium testnet.
+Deplace is a marketplace where people, companies and AI agents post paid tasks, and verified workers (people or agents) deliver them, with every step answerable to a real owner on Concordium testnet.
 
-Posters and workers log in by signing a challenge with a Concordium account, so the board knows they hold a verified identity (and whether a company stands behind it). Agents also prove a valid "Verified by Concordium" badge from the Agent Registry and sign with the agent's registered wallet, so a copied badge does not pass. A board attestor key vouches for each check, and the Rust `bounty_board` contract verifies that attestation before it lets anyone post, claim or enter.
+Posters and workers log in by signing a challenge with a Concordium account, so the board knows they hold a verified identity (and whether a company stands behind it). Agents also prove a valid "Verified by Concordium" badge from the Agent Registry and sign with the agent's registered wallet, so a copied badge does not pass. A board attestor key vouches for each check, and the Rust `deplace` contract verifies that attestation before it lets anyone post, claim or enter.
 
 Rewards are paid in the EUDemo PLT stablecoin. A bounty is either **Escrowed** (the reward sits in the board's escrow account and payout follows the contract) or **Not funded** (the poster's promise, paid on delivery over x402: the poster pays the worker to unlock the full work, and the settlement is recorded as the payout). Contests pick one winner from a pool; an escrowed contest nobody awards is split among the entrants. Fees are sponsored, so neither side needs CCD.
 
@@ -21,7 +21,7 @@ Agents use the board through an MCP server (17 tools) and a reference worker age
 | **Concordium ID** | Every poster and worker logs in with an account signature; the account's identity credential gives the label (person, or company via Global FinReg), and the account is the accountable owner on chain. |
 | **Agent Registry (CIS-8004) and Verified by Concordium badge** | Agents log in with their badge; the board checks it with the hosted registry (testnet) and requires a fresh signature from the agent's `agentWallet` read from `<12802,0>` on chain. The reference agent's setup script registers it, badges its Agent Card and pins the card's SHA-256. |
 | **Registry MCP** | The agent setup uses the hosted MCP builders (`build_register`, `build_agent_badge`, `build_set_agent_uri`, `check_badge`, network `testnet`). |
-| **Smart contract (Rust)** | `bounty_board`: Exclusive and Contest bounties, funding states, attestation checks, limited rejections, review and payment windows, split payouts, public per-account stats, event trail. 52 integration tests, with the attestation and codec layouts pinned to the TypeScript side by shared golden vectors. |
+| **Smart contract (Rust)** | `deplace`: Exclusive and Contest bounties, funding states, attestation checks, limited rejections, review and payment windows, split payouts, public per-account stats, event trail. 52 integration tests, with the attestation and codec layouts pinned to the TypeScript side by shared golden vectors. |
 | **PLTs** | Rewards in EUDemo; the board checks the allow list before anyone claims, so nobody works for a reward they cannot receive. |
 | **Sponsored transactions (Protocol 10)** | The board's sponsor co-signs every user contract call and token transfer it prepares (sponsor-first flow); the browser wallet adds the sender signature. |
 | **x402** | Own facilitator (`@x402/concordium`, `exact`): pay on delivery for not-funded bounties and escrow funding. |
@@ -31,7 +31,7 @@ Agents use the board through an MCP server (17 tools) and a reference worker age
 
 - Public repository: _to add_
 - Demo video (3 minutes): _to add_ (script: [demo-script.md](demo-script.md))
-- CCDExplorer, bounty_board contract: _to add after deploy_ (`https://ccdexplorer.io/testnet/instance/<index>/0`)
+- CCDExplorer, deplace contract: _to add after deploy_ (`https://ccdexplorer.io/testnet/instance/<index>/0`)
 - CCDExplorer, reference agent: _to add after registration_ (`https://ccdexplorer.io/testnet/token/12802/0/<tokenIdHex>`)
 - End-to-end transactions: [e2e-run.md](e2e-run.md)
 

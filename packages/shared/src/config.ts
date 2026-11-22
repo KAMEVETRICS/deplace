@@ -8,7 +8,7 @@ export interface Config {
   /** Hosted Agent Registry REST base URL. Calls must add network=testnet. */
   badgeApi: string;
   registry: ContractRef;
-  /** bounty_board instance; null until scripts/deploy.ts has run. */
+  /** deplace instance; null until scripts/deploy.ts has run. */
   contract: ContractRef | null;
   rewardTokenId: string;
   faucetUrl: string | null;

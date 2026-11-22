@@ -8,7 +8,7 @@ export type BountyKind = "Exclusive" | "Contest";
 
 export type Funding = { type: "NotFunded" } | { type: "Escrowed"; fundingTx: string };
 
-/** Mirrors `Status` in contracts/bounty-board/src/state.rs. Times are Unix ms. */
+/** Mirrors `Status` in contracts/deplace/src/state.rs. Times are Unix ms. */
 export type BountyStatus =
   | { type: "Open" }
   | { type: "Claimed"; worker: string; agent: bigint | null }

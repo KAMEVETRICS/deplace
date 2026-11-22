@@ -1,4 +1,4 @@
-// Reference worker agent for the Concordium Bounty Board.
+// Reference worker agent for Deplace.
 //   npm start -w agent               work: claim, do and submit one page-facts bounty, wait for payment
 //   npm start -w agent -- --forever  keep working bounties
 //   npm start -w agent -- --post     agent as poster: post, accept, pay on delivery with x402

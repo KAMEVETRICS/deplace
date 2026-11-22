@@ -2,18 +2,18 @@ import { AccountAddress } from "@concordium/web-sdk";
 import type { ContractRef } from "./types.js";
 
 /**
- * Messages the board's attestor key signs, and the bounty_board contract verifies.
+ * Messages the board's attestor key signs, and the deplace contract verifies.
  *
  * Layout: ASCII domain tag (not length-prefixed) followed by the Concordium binary
  * serialization of the struct: ContractAddress = u64 LE index + u64 LE subindex,
  * AccountAddress = 32 raw bytes, Option = tag byte 0/1 then the value, u64 and
  * Timestamp (ms) = 8 bytes LE, [u8; 32] = 32 raw bytes.
- * Must stay byte-identical to contracts/bounty-board/src/attest.rs.
+ * Must stay byte-identical to contracts/deplace/src/attest.rs.
  */
 export const DOMAIN = {
-  post: "BountyBoard/v1/post",
-  claim: "BountyBoard/v1/claim",
-  enter: "BountyBoard/v1/enter",
+  post: "Deplace/v1/post",
+  claim: "Deplace/v1/claim",
+  enter: "Deplace/v1/enter",
 } as const;
 
 export interface PostAttestation {

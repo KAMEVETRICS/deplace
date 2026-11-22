@@ -3,7 +3,7 @@
  * itself; this policy decides whether a request to build and co-sign one is allowed.
  */
 
-/** bounty_board entrypoints people and agents call. Operator and admin entrypoints are excluded. */
+/** deplace entrypoints people and agents call. Operator and admin entrypoints are excluded. */
 export const SPONSORED_ENTRYPOINTS = new Set([
   "post",
   "cancel",

@@ -1,6 +1,6 @@
 mod common;
 
-use bounty_board::*;
+use deplace::*;
 use common::*;
 use concordium_smart_contract_testing::*;
 

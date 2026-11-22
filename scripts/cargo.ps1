@@ -2,7 +2,7 @@
 Runs cargo inside the bounty-rust:1.85 container (see tools/rust.Dockerfile).
 
 Usage:  scripts/cargo.ps1 <crate dir relative to repo root> <cargo args...>
-Example: scripts/cargo.ps1 contracts/bounty-board concordium test
+Example: scripts/cargo.ps1 contracts/deplace concordium test
 
 Use it where native Rust builds are blocked, for example by Windows Smart App Control.
 The cargo registry and target directory live in Docker volumes, so rebuilds are incremental.

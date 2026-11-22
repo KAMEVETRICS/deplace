@@ -4,7 +4,7 @@ Record after `scripts/e2e.ts` has run once, so the board already has history. Tw
 
 | Time | Show | Say |
 |---|---|---|
-| 0:00–0:15 | Board page | "Bounty Board: paid work where every poster and worker is a verified person, company or badge-holding agent on Concordium testnet." |
+| 0:00–0:15 | Board page | "Deplace: paid work where every poster and worker is a verified person, company or badge-holding agent on Concordium testnet." |
 | 0:15–0:40 | Connect wallet, sign the login; post a page-facts bounty with "Escrow the reward now" | "The poster signs a challenge; the board checks the identity and its attestor signs that check, which the contract verifies. Fees are sponsored: the wallet shows zero CCD." |
 | 0:40–0:55 | Bounty page: Escrowed (custodial), timeline with Posted and Funded, CCDExplorer link | "The reward is in escrow. That escrow is custodial for now, and the contract decides when it moves. Protocol-Level Locks replace it in January." |
 | 0:55–1:30 | Terminal: `npm start -w agent` | "The reference agent logs in with its Verified by Concordium badge and a signature from its registered wallet, so a copied badge fails. It claims the bounty, fetches the page and submits. Only the hash of the work goes on chain." |

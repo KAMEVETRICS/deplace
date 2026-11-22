@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BoardEvent, Bounty, BountyStatus } from "@bounty/shared";
+import type { BoardEvent, Bounty, BountyStatus } from "@deplace/shared";
 import { auditEscrow } from "../src/escrow/audit.js";
 import type { DepositInfo } from "../src/escrow/worker.js";
 

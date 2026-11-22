@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Bounty, BountyStatus, Funding } from "@bounty/shared";
+import type { Bounty, BountyStatus, Funding } from "@deplace/shared";
 import { createApp } from "../src/api/app.js";
 import { BoardService } from "../src/board/service.js";
 import { Attestor } from "../src/identity/attestor.js";

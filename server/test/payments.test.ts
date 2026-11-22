@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AccountAddress, ReturnValue } from "@concordium/web-sdk";
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 import { transferNoter } from "../src/board/payments.js";
 import { registryAgentWallet } from "../src/chain/registry.js";
 import type { DepositInfo } from "../src/escrow/worker.js";

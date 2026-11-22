@@ -1,5 +1,5 @@
 import { AccountAddress, ContractAddress, Parameter, ReceiveName, ReturnValue, type ConcordiumGRPCClient } from "@concordium/web-sdk";
-import type { ContractRef } from "@bounty/shared";
+import type { ContractRef } from "@deplace/shared";
 import { bigintJson } from "./grpc.js";
 
 /** CIS-8004 rejects with AgentNotFound (-7200) for an unknown token id. */

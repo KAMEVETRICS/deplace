@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { encodeIdHash, type Bounty, type BoardEvent } from "@bounty/shared";
+import { encodeIdHash, type Bounty, type BoardEvent } from "@deplace/shared";
 import { createApp } from "../src/api/app.js";
 import { BoardService, type BoardDeps } from "../src/board/service.js";
 import { challengeMessage } from "../src/identity/challenge.js";

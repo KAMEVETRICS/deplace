@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createPublicKey, verify } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { postAttestationBytes, workAttestationBytes } from "@bounty/shared";
+import { postAttestationBytes, workAttestationBytes } from "@deplace/shared";
 import { ChallengeStore, challengeMessage } from "../src/identity/challenge.js";
 import { classifyAccount, verifyAccountSignature } from "../src/identity/account.js";
 import { checkBadge } from "../src/identity/badge.js";
@@ -46,7 +46,7 @@ describe("challenges", () => {
   });
 
   it("puts the nonce in a domain-separated message", () => {
-    expect(challengeMessage("abc")).toBe("BountyBoard/v1/login:abc");
+    expect(challengeMessage("abc")).toBe("Deplace/v1/login:abc");
   });
 });
 

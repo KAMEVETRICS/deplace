@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-//! Test helpers: a chain with the bounty_board contract and the accounts and keys the tests use.
+//! Test helpers: a chain with the deplace contract and the accounts and keys the tests use.
 
-use bounty_board::*;
+use deplace::*;
 use concordium_smart_contract_testing::*;
 use ed25519_dalek::{Signer as _, SigningKey};
 // The testing crate does not re-export these; the test files get them through `use common::*`.
@@ -44,7 +44,7 @@ pub fn reject_reason(result: CallResult) -> Error {
     err.parse_return_value::<Error>().expect("rejection carries an Error value")
 }
 
-/// All bounty_board events logged by a call, in order.
+/// All deplace events logged by a call, in order.
 pub fn events(update: &ContractInvokeSuccess) -> Vec<Event> {
     update
         .events()
@@ -79,7 +79,7 @@ impl Env {
             .contract_init(Signer::with_one_key(), ADMIN, Energy::from(10_000), InitContractPayload {
                 amount: Amount::zero(),
                 mod_ref: deployment.module_reference,
-                init_name: OwnedContractName::new_unchecked("init_bounty_board".into()),
+                init_name: OwnedContractName::new_unchecked("init_deplace".into()),
                 param: OwnedParameter::from_serial(&params).unwrap(),
             })
             .unwrap();
@@ -99,7 +99,7 @@ impl Env {
             UpdateContractPayload {
                 amount: Amount::zero(),
                 address: self.contract,
-                receive_name: OwnedReceiveName::new_unchecked(format!("bounty_board.{entrypoint}")),
+                receive_name: OwnedReceiveName::new_unchecked(format!("deplace.{entrypoint}")),
                 message: OwnedParameter::from_serial(p).unwrap(),
             },
         )
@@ -110,7 +110,7 @@ impl Env {
             .contract_invoke(ADMIN, Address::Account(ADMIN), Energy::from(500_000), UpdateContractPayload {
                 amount: Amount::zero(),
                 address: self.contract,
-                receive_name: OwnedReceiveName::new_unchecked(format!("bounty_board.{entrypoint}")),
+                receive_name: OwnedReceiveName::new_unchecked(format!("deplace.{entrypoint}")),
                 message: OwnedParameter::from_serial(p).unwrap(),
             })
             .expect("view succeeds")

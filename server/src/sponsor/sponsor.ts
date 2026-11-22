@@ -11,7 +11,7 @@ import {
   type AccountSigner,
 } from "@concordium/web-sdk";
 import { CborAccountAddress, CborMemo, TokenAmount, TokenId, createTokenUpdatePayload } from "@concordium/web-sdk/plt";
-import type { ContractRef } from "@bounty/shared";
+import type { ContractRef } from "@deplace/shared";
 import type { Intent, SponsorPolicy } from "./policy.js";
 
 export interface SponsorAccount {
@@ -68,7 +68,7 @@ async function signableFor(deps: SponsorDeps, intent: Intent, meta: Meta, sponso
       {
         amount: CcdAmount.zero(),
         address: ContractAddress.create(deps.contract.index, deps.contract.subindex),
-        receiveName: ReceiveName.fromString(`bounty_board.${intent.entrypoint}`),
+        receiveName: ReceiveName.fromString(`deplace.${intent.entrypoint}`),
         message: Parameter.fromBuffer(intent.parameter.slice().buffer),
       },
       Energy.create(deps.maxContractEnergy ?? 30_000n),

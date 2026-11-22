@@ -1,5 +1,5 @@
 #![no_std]
-//! bounty_board: state machine and audit trail for the Concordium Bounty Board.
+//! deplace: state machine and audit trail for Deplace, a bounty board on Concordium.
 //!
 //! The contract records who posted, claimed, entered, submitted, accepted, awarded and
 //! got paid. It does not hold the reward: Concordium smart contracts cannot hold PLTs,
@@ -67,7 +67,7 @@ fn ensure_admin(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<()> 
 
 // --- init --------------------------------------------------------------------
 
-#[init(contract = "bounty_board", parameter = "InitParams", event = "Event")]
+#[init(contract = "deplace", parameter = "InitParams", event = "Event")]
 fn init(ctx: &InitContext, state_builder: &mut StateBuilder) -> InitResult<State> {
     let p: InitParams = ctx.parameter_cursor().get()?;
     Ok(State {
@@ -91,7 +91,7 @@ fn init(ctx: &InitContext, state_builder: &mut StateBuilder) -> InitResult<State
 /// Posts a bounty. The sender is the poster; the attestation proves the board checked
 /// the poster's Concordium identity (or agent badge) for exactly this spec.
 #[receive(
-    contract = "bounty_board",
+    contract = "deplace",
     name = "post",
     parameter = "PostParams",
     return_value = "u64",
@@ -150,7 +150,7 @@ fn post(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypt
 }
 
 /// The poster withdraws an Open bounty nobody has claimed or entered.
-#[receive(contract = "bounty_board", name = "cancel", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "cancel", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn cancel(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -220,7 +220,7 @@ fn split_shares(host: &Host<State>, b: &Bounty) -> ContractResult<Vec<SplitShare
 // --- funding -----------------------------------------------------------------
 
 /// The operator saw an exact funding transfer (memo `fund:<id>`) arrive in escrow.
-#[receive(contract = "bounty_board", name = "confirm_funding", parameter = "ConfirmFundingParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "confirm_funding", parameter = "ConfirmFundingParams", error = "Error", mutable, enable_logger)]
 fn confirm_funding(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_operator(ctx, host)?;
     let p: ConfirmFundingParams = ctx.parameter_cursor().get()?;
@@ -235,7 +235,7 @@ fn confirm_funding(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Lo
 
 // --- exclusive flow ----------------------------------------------------------
 
-#[receive(contract = "bounty_board", name = "claim", parameter = "ClaimParams", error = "Error", mutable, enable_logger, crypto_primitives)]
+#[receive(contract = "deplace", name = "claim", parameter = "ClaimParams", error = "Error", mutable, enable_logger, crypto_primitives)]
 fn claim(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypto: &CryptoPrimitives) -> ContractResult<()> {
     let worker = sender_account(ctx)?;
     let p: ClaimParams = ctx.parameter_cursor().get()?;
@@ -251,7 +251,7 @@ fn claim(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, cryp
     Ok(())
 }
 
-#[receive(contract = "bounty_board", name = "submit", parameter = "SubmitParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "submit", parameter = "SubmitParams", error = "Error", mutable, enable_logger)]
 fn submit(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let sender = sender_account(ctx)?;
     let p: SubmitParams = ctx.parameter_cursor().get()?;
@@ -270,7 +270,7 @@ fn submit(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
     Ok(())
 }
 
-#[receive(contract = "bounty_board", name = "accept", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "accept", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -286,7 +286,7 @@ fn accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
 }
 
 /// The poster sends the work back. The third rejection is final and goes on the poster's record.
-#[receive(contract = "bounty_board", name = "reject", parameter = "RejectParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "reject", parameter = "RejectParams", error = "Error", mutable, enable_logger)]
 fn reject(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let p: RejectParams = ctx.parameter_cursor().get()?;
     let mut b = load(host, p.id)?;
@@ -315,7 +315,7 @@ fn reject(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
 }
 
 /// Anyone may accept escrowed work the poster left unreviewed for a full review window.
-#[receive(contract = "bounty_board", name = "auto_accept", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "auto_accept", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn auto_accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -333,7 +333,7 @@ fn auto_accept(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger
 }
 
 /// Closes a bounty nobody delivered on in time (or a contest nobody entered).
-#[receive(contract = "bounty_board", name = "expire", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "expire", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn expire(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -352,7 +352,7 @@ fn expire(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> 
 }
 
 /// Puts an accepted or awarded, not-funded bounty that was not paid in time on the poster's record.
-#[receive(contract = "bounty_board", name = "mark_unpaid", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "mark_unpaid", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn mark_unpaid(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -378,7 +378,7 @@ fn mark_unpaid(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger
 
 /// Records the token transfer(s) that paid a bounty: from escrow, or the poster's
 /// direct x402 payment for a not-funded bounty. Recipients and amounts must match state.
-#[receive(contract = "bounty_board", name = "record_payout", parameter = "RecordPayoutParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "record_payout", parameter = "RecordPayoutParams", error = "Error", mutable, enable_logger)]
 fn record_payout(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_operator(ctx, host)?;
     let p: RecordPayoutParams = ctx.parameter_cursor().get()?;
@@ -405,7 +405,7 @@ fn record_payout(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logg
     Ok(())
 }
 
-#[receive(contract = "bounty_board", name = "record_refund", parameter = "RecordRefundParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "record_refund", parameter = "RecordRefundParams", error = "Error", mutable, enable_logger)]
 fn record_refund(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_operator(ctx, host)?;
     let p: RecordRefundParams = ctx.parameter_cursor().get()?;
@@ -420,7 +420,7 @@ fn record_refund(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logg
 
 // --- contest flow --------------------------------------------------------------
 
-#[receive(contract = "bounty_board", name = "enter", parameter = "EnterParams", error = "Error", mutable, enable_logger, crypto_primitives)]
+#[receive(contract = "deplace", name = "enter", parameter = "EnterParams", error = "Error", mutable, enable_logger, crypto_primitives)]
 fn enter(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, crypto: &CryptoPrimitives) -> ContractResult<()> {
     let worker = sender_account(ctx)?;
     let p: EnterParams = ctx.parameter_cursor().get()?;
@@ -443,7 +443,7 @@ fn enter(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger, cryp
 }
 
 /// The poster picks the winning entry between the deadline and the end of the review window.
-#[receive(contract = "bounty_board", name = "award", parameter = "AwardParams", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "award", parameter = "AwardParams", error = "Error", mutable, enable_logger)]
 fn award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let p: AwardParams = ctx.parameter_cursor().get()?;
     let mut b = load(host, p.id)?;
@@ -462,7 +462,7 @@ fn award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> C
 }
 
 /// An escrowed contest the poster did not award in time is split among all entrants.
-#[receive(contract = "bounty_board", name = "split_unawarded", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "split_unawarded", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn split_unawarded(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -479,7 +479,7 @@ fn split_unawarded(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Lo
 }
 
 /// A not-funded contest the poster did not award in time: closed, and on the poster's record.
-#[receive(contract = "bounty_board", name = "no_award", parameter = "u64", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "no_award", parameter = "u64", error = "Error", mutable, enable_logger)]
 fn no_award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let mut b = load(host, id)?;
@@ -496,7 +496,7 @@ fn no_award(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -
 
 // --- admin -------------------------------------------------------------------
 
-#[receive(contract = "bounty_board", name = "set_attestor", parameter = "PublicKeyEd25519", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "set_attestor", parameter = "PublicKeyEd25519", error = "Error", mutable, enable_logger)]
 fn set_attestor(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_admin(ctx, host)?;
     host.state_mut().attestor = ctx.parameter_cursor().get()?;
@@ -504,7 +504,7 @@ fn set_attestor(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logge
     Ok(())
 }
 
-#[receive(contract = "bounty_board", name = "set_operator", parameter = "AccountAddress", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "set_operator", parameter = "AccountAddress", error = "Error", mutable, enable_logger)]
 fn set_operator(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_admin(ctx, host)?;
     host.state_mut().operator = ctx.parameter_cursor().get()?;
@@ -512,7 +512,7 @@ fn set_operator(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logge
     Ok(())
 }
 
-#[receive(contract = "bounty_board", name = "set_admin", parameter = "AccountAddress", error = "Error", mutable, enable_logger)]
+#[receive(contract = "deplace", name = "set_admin", parameter = "AccountAddress", error = "Error", mutable, enable_logger)]
 fn set_admin(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) -> ContractResult<()> {
     ensure_admin(ctx, host)?;
     host.state_mut().admin = ctx.parameter_cursor().get()?;
@@ -522,33 +522,33 @@ fn set_admin(ctx: &ReceiveContext, host: &mut Host<State>, logger: &mut Logger) 
 
 // --- views -------------------------------------------------------------------
 
-#[receive(contract = "bounty_board", name = "view_bounty", parameter = "u64", return_value = "Option<Bounty>", error = "Error")]
+#[receive(contract = "deplace", name = "view_bounty", parameter = "u64", return_value = "Option<Bounty>", error = "Error")]
 fn view_bounty(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Option<Bounty>> {
     let id: u64 = ctx.parameter_cursor().get()?;
     Ok(host.state().bounties.get(&id).map(|b| b.clone()))
 }
 
-#[receive(contract = "bounty_board", name = "view_entry", parameter = "EntryKey", return_value = "Option<Entry>", error = "Error")]
+#[receive(contract = "deplace", name = "view_entry", parameter = "EntryKey", return_value = "Option<Entry>", error = "Error")]
 fn view_entry(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Option<Entry>> {
     let k: EntryKey = ctx.parameter_cursor().get()?;
     Ok(host.state().entries.get(&(k.id, k.entry_id)).map(|e| e.clone()))
 }
 
 /// The shares an unawarded escrowed contest pays out (the escrow worker uses this).
-#[receive(contract = "bounty_board", name = "view_split", parameter = "u64", return_value = "Vec<SplitShare>", error = "Error")]
+#[receive(contract = "deplace", name = "view_split", parameter = "u64", return_value = "Vec<SplitShare>", error = "Error")]
 fn view_split(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Vec<SplitShare>> {
     let id: u64 = ctx.parameter_cursor().get()?;
     let b = load(host, id)?;
     split_shares(host, &b)
 }
 
-#[receive(contract = "bounty_board", name = "view_stats", parameter = "AccountAddress", return_value = "Stats", error = "Error")]
+#[receive(contract = "deplace", name = "view_stats", parameter = "AccountAddress", return_value = "Stats", error = "Error")]
 fn view_stats(ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<Stats> {
     let account: AccountAddress = ctx.parameter_cursor().get()?;
     Ok(host.state().stats.get(&account).map(|s| *s).unwrap_or_default())
 }
 
-#[receive(contract = "bounty_board", name = "view_config", return_value = "ConfigView", error = "Error")]
+#[receive(contract = "deplace", name = "view_config", return_value = "ConfigView", error = "Error")]
 fn view_config(_ctx: &ReceiveContext, host: &Host<State>) -> ContractResult<ConfigView> {
     let s = host.state();
     Ok(ConfigView {

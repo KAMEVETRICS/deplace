@@ -1,4 +1,4 @@
-import { encodeIdHash, encodeRecordPayout } from "@bounty/shared";
+import { encodeIdHash, encodeRecordPayout } from "@deplace/shared";
 import type { BountyContract } from "../chain/contract.js";
 import type { Operator } from "../chain/operator.js";
 import type { PltClient } from "../chain/plt.js";

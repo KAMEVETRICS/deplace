@@ -1,6 +1,6 @@
 mod common;
 
-use bounty_board::*;
+use deplace::*;
 use common::*;
 use concordium_smart_contract_testing::*;
 
@@ -12,7 +12,7 @@ const EXPIRY_HEX: &str = "0807060504030201";
 fn vectors() -> (String, String, String) {
     // contract, poster, poster_agent Some(5), kind Exclusive, spec_hash, reward 100, deadline 2, expiry
     let post = format!(
-        "426f756e7479426f6172642f76312f706f7374{CONTRACT_HEX}{}01{}00{}{}{}{EXPIRY_HEX}",
+        "4465706c6163652f76312f706f7374{CONTRACT_HEX}{}01{}00{}{}{}{EXPIRY_HEX}",
         "07".repeat(32),
         "0500000000000000",
         "ab".repeat(32),
@@ -20,9 +20,9 @@ fn vectors() -> (String, String, String) {
         "0200000000000000"
     );
     let claim =
-        format!("426f756e7479426f6172642f76312f636c61696d{CONTRACT_HEX}2a00000000000000{}00{EXPIRY_HEX}", "09".repeat(32));
+        format!("4465706c6163652f76312f636c61696d{CONTRACT_HEX}2a00000000000000{}00{EXPIRY_HEX}", "09".repeat(32));
     let enter = format!(
-        "426f756e7479426f6172642f76312f656e746572{CONTRACT_HEX}2a00000000000000{}010700000000000000{EXPIRY_HEX}",
+        "4465706c6163652f76312f656e746572{CONTRACT_HEX}2a00000000000000{}010700000000000000{EXPIRY_HEX}",
         "09".repeat(32)
     );
     (post, claim, enter)

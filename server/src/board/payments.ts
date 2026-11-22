@@ -1,4 +1,4 @@
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 import type { DepositInfo, DepositOutcome } from "../escrow/worker.js";
 
 export interface TransferNoterDeps {

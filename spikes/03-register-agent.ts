@@ -69,8 +69,8 @@ async function tokenId(): Promise<string> {
 
 if (step === "card") {
   const r = await mcp("build_agent_card", {
-    name: "Bounty Board reference worker",
-    description: "Reference worker agent for the Concordium Bounty Board. It claims page-facts bounties, fetches the page and reports its title, word count and SHA-256.",
+    name: "Deplace reference worker",
+    description: "Reference worker agent for Deplace. It claims page-facts bounties, fetches the page and reports its title, word count and SHA-256.",
     agent_uri: CARD_URL,
     owner_account: owner,
     skills: [{ id: "page-facts", name: "Page facts", description: "Fetch a public URL and report its title, word count and SHA-256.", tags: ["bounty", "web"] }],

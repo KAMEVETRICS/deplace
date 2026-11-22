@@ -38,7 +38,7 @@ function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: stri
         case "check_payout_eligibility":
           return (over.eligible ?? true) ? { ok: true } : { ok: false, reason: "not on allow list", faucetUrl: "https://faucet" };
         case "request_challenge":
-          return { nonce: "n1", message: "BountyBoard/v1/login:n1" };
+          return { nonce: "n1", message: "Deplace/v1/login:n1" };
         case "login":
           return { token: "tok", identity: { account: me.address } };
         case "list_bounties":

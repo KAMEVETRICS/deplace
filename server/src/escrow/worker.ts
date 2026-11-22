@@ -1,7 +1,7 @@
-import type { Bounty } from "@bounty/shared";
+import type { Bounty } from "@deplace/shared";
 
 /**
- * The escrow worker moves escrowed EUDemo only when bounty_board's state says so:
+ * The escrow worker moves escrowed EUDemo only when deplace's state says so:
  * it confirms exact deposits, pays accepted or awarded work, splits unawarded contests
  * and refunds cancelled, expired or finally rejected bounties. It is custodial (the
  * escrow is an account the board runs), so every transfer it makes is checkable

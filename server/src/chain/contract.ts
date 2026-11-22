@@ -16,24 +16,24 @@ import {
   type ContractRef,
   type Entry,
   type Stats,
-} from "@bounty/shared";
+} from "@deplace/shared";
 import { bigintJson } from "./grpc.js";
 
-/** The contract rejected the call; `errorName` is the bounty_board `Error` variant. */
+/** The contract rejected the call; `errorName` is the deplace `Error` variant. */
 export class ContractRejected extends Error {
   readonly errorName: string;
   constructor(
     readonly entrypoint: string,
     readonly code: number,
   ) {
-    super(`bounty_board.${entrypoint} rejected: ${contractErrorName(code)}`);
+    super(`deplace.${entrypoint} rejected: ${contractErrorName(code)}`);
     this.name = "ContractRejected";
     this.errorName = contractErrorName(code);
   }
 }
 
 /**
- * bounty_board events in a finalized transaction's summary (contract updates log them as
+ * deplace events in a finalized transaction's summary (contract updates log them as
  * hex under each `Updated`/`Interrupted` trace element of our instance).
  */
 export function eventsFromSummary(summary: unknown, contract: ContractRef): BoardEvent[] {
@@ -51,7 +51,7 @@ export function eventsFromSummary(summary: unknown, contract: ContractRef): Boar
   return out;
 }
 
-/** Read access to bounty_board through the node's invokeContract (no transaction, no fee). */
+/** Read access to deplace through the node's invokeContract (no transaction, no fee). */
 export class BountyContract {
   constructor(
     private readonly client: Pick<ConcordiumGRPCClient, "invokeContract">,
@@ -61,15 +61,15 @@ export class BountyContract {
   private async invoke(entrypoint: string, parameter: Uint8Array): Promise<Uint8Array> {
     const res = await this.client.invokeContract({
       contract: ContractAddress.create(this.address.index, this.address.subindex),
-      method: ReceiveName.fromString(`bounty_board.${entrypoint}`),
+      method: ReceiveName.fromString(`deplace.${entrypoint}`),
       parameter: Parameter.fromBuffer(parameter.slice().buffer),
     });
     if (res.tag === "failure") {
       const reason = res.reason as { tag?: string; rejectReason?: number } | null;
       if (reason?.tag === "RejectedReceive" && typeof reason.rejectReason === "number") throw new ContractRejected(entrypoint, reason.rejectReason);
-      throw new Error(`bounty_board.${entrypoint} invocation failed: ${JSON.stringify(reason, bigintJson)}`);
+      throw new Error(`deplace.${entrypoint} invocation failed: ${JSON.stringify(reason, bigintJson)}`);
     }
-    if (!res.returnValue) throw new Error(`bounty_board.${entrypoint} returned no value`);
+    if (!res.returnValue) throw new Error(`deplace.${entrypoint} returned no value`);
     return ReturnValue.toBuffer(res.returnValue);
   }
 

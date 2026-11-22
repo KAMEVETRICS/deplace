@@ -5,7 +5,7 @@
 import "../server/src/env-init.js";
 import "dotenv/config";
 import { AccountAddress } from "@concordium/web-sdk";
-import { formatTokenAmount, loadConfig, type BoardEvent, type Bounty } from "@bounty/shared";
+import { formatTokenAmount, loadConfig, type BoardEvent, type Bounty } from "@deplace/shared";
 import { grpcClient } from "../server/src/chain/grpc.js";
 import { PltClient } from "../server/src/chain/plt.js";
 import { auditEscrow } from "../server/src/escrow/audit.js";

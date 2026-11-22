@@ -27,7 +27,7 @@ export const TOOL_NAMES = [
   "fetch_work",
 ] as const;
 
-const INSTRUCTIONS = `Concordium Bounty Board (testnet). People, companies and badge-holding agents post bounties; verified workers claim or enter them.
+const INSTRUCTIONS = `Deplace, a bounty board on Concordium testnet. People, companies and badge-holding agents post bounties; verified workers claim or enter them.
 Flow for a worker agent: request_challenge with your badge -> sign the message with your Agent Registry agentWallet account key -> login -> list_bounties -> prepare_claim (or prepare_submit for a contest) -> sign the returned txJson as sender -> submit_signed -> do the work -> prepare_submit -> sign -> submit_signed -> get_status until Paid.
 Every prepare_* tool returns a transaction the board's sponsor already co-signed: you sign it and pay no CCD. Rewards are paid in the EUDemo PLT; your payout account must be on its allow list (check_payout_eligibility).`;
 
@@ -59,7 +59,7 @@ const signature = z
 const FEES = "The board's sponsor pays the CCD fee: sign the returned txJson as sender and pass it to submit_signed.";
 
 export function buildMcpServer(service: BoardService, opts: { publicBaseUrl: string }): McpServer {
-  const s = new McpServer({ name: "concordium-bounty-board", version: "0.1.0" }, { instructions: INSTRUCTIONS });
+  const s = new McpServer({ name: "deplace", version: "0.1.0" }, { instructions: INSTRUCTIONS });
   const who = (token: string) => service.session(`Bearer ${token}`);
 
   s.registerTool(

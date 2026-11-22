@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Bounty, BountyStatus, Funding } from "@bounty/shared";
+import type { Bounty, BountyStatus, Funding } from "@deplace/shared";
 import { EscrowWorker, MemoryEscrowStore, type DepositInfo, type EscrowChain, type TxState } from "../src/escrow/worker.js";
 
 const ESCROW = "escrow-acct";

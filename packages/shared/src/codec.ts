@@ -2,8 +2,8 @@ import { AccountAddress } from "@concordium/web-sdk";
 import type { Bounty, BountyKind, BountyStatus, Entry, Funding, Stats } from "./types.js";
 
 /**
- * Binary codec for bounty_board parameters, return values and events, following the
- * Concordium serialization of the Rust types in contracts/bounty-board/src/state.rs:
+ * Binary codec for deplace parameters, return values and events, following the
+ * Concordium serialization of the Rust types in contracts/deplace/src/state.rs:
  * integers little-endian, Option = tag 0/1 then value, enums = u8 tag then fields,
  * Vec = u32 length then items, AccountAddress and hashes = raw bytes.
  * Golden vectors in both test suites keep the two sides in step.
@@ -196,7 +196,7 @@ export const decodeConfig = (b: Uint8Array): BoardConfig =>
     nextId: r.u64(),
   }));
 
-/** bounty_board `Error` variants in declaration order; the contract rejects with code -(index + 1). */
+/** deplace `Error` variants in declaration order; the contract rejects with code -(index + 1). */
 export const CONTRACT_ERRORS = [
   "ParseError",
   "LogFull",

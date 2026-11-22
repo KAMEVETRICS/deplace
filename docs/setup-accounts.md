@@ -1,4 +1,4 @@
-# Testnet accounts for the Bounty Board
+# Testnet accounts for Deplace
 
 The board needs five testnet accounts. You create them in Concordium Wallet for Web and export their keys into `secrets/` (git ignores it). Nothing here costs real money: everything is on testnet.
 

@@ -22,13 +22,13 @@ function keys(fill: number): AgentKeys & { publicKeyHex: string } {
 describe("agent signer", () => {
   it("signs a login challenge the board can verify", async () => {
     const k = keys(1);
-    const sig = await signChallenge(k, "BountyBoard/v1/login:abc");
+    const sig = await signChallenge(k, "Deplace/v1/login:abc");
     const info = {
       accountAddress: AccountAddress.fromBase58(k.address),
       accountThreshold: 1,
       accountCredentials: { 0: { v: 0, value: { type: "normal", contents: { credentialPublicKeys: { threshold: 1, keys: { 0: { schemeId: "Ed25519", verifyKey: k.publicKeyHex } } } } } } },
     } as never;
-    expect(await verifyMessageSignature("BountyBoard/v1/login:abc", sig, info)).toBe(true);
+    expect(await verifyMessageSignature("Deplace/v1/login:abc", sig, info)).toBe(true);
   });
 
   it("adds its sender signature to a prepared transaction and keeps the payload", async () => {

@@ -12,7 +12,7 @@ import {
   type ConcordiumGRPCClient,
 } from "@concordium/web-sdk";
 import { CborAccountAddress, CborMemo, TokenAmount, TokenId, createTokenUpdatePayload } from "@concordium/web-sdk/plt";
-import type { ContractRef } from "@bounty/shared";
+import type { ContractRef } from "@deplace/shared";
 import type { PreparedTransfer } from "../escrow/worker.js";
 import { ContractRejected } from "./contract.js";
 import { bigintJson } from "./grpc.js";
@@ -44,7 +44,7 @@ function assertSucceeded(entrypoint: string, summary: unknown) {
 }
 
 /**
- * The operator account: the escrow, and the only sender allowed to call bounty_board's
+ * The operator account: the escrow, and the only sender allowed to call deplace's
  * operator entrypoints. It pays its own (small) fees.
  */
 export class Operator {
@@ -73,7 +73,7 @@ export class Operator {
         {
           amount: CcdAmount.zero(),
           address: ContractAddress.create(this.contract.index, this.contract.subindex),
-          receiveName: ReceiveName.fromString(`bounty_board.${entrypoint}`),
+          receiveName: ReceiveName.fromString(`deplace.${entrypoint}`),
           message: Parameter.fromBuffer(parameter.slice().buffer),
         },
         Energy.create(energy),

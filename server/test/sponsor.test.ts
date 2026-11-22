@@ -34,7 +34,7 @@ describe("sponsor policy", () => {
   });
 
   it("refuses_foreign_contract: operator-only and unknown entrypoints are not sponsored", async () => {
-    for (const e of ["record_payout", "confirm_funding", "set_operator", "set_attestor", "transfer", "bounty_board.post"]) {
+    for (const e of ["record_payout", "confirm_funding", "set_operator", "set_attestor", "transfer", "deplace.post"]) {
       expect(await policy().check(contract(e), poster)).toMatchObject({ ok: false, reason: expect.stringMatching(/not sponsored/) });
     }
   });

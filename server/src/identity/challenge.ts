@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 /** The exact text a person or agent signs to prove control of an account. */
 export function challengeMessage(nonce: string): string {
-  return `BountyBoard/v1/login:${nonce}`;
+  return `Deplace/v1/login:${nonce}`;
 }
 
 interface Pending {

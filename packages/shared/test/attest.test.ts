@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AccountAddress } from "@concordium/web-sdk";
 import { postAttestationBytes, workAttestationBytes } from "../src/attest.js";
 
-// Golden vectors. The Rust contract tests (contracts/bounty-board/tests/core.rs)
+// Golden vectors. The Rust contract tests (contracts/deplace/tests/core.rs)
 // encode the same inputs and assert the same hex, so the two sides cannot drift.
 const contract = { index: 1234n, subindex: 0n };
 const poster = AccountAddress.fromBuffer(new Uint8Array(32).fill(7).buffer).address;
@@ -15,7 +15,7 @@ const CONTRACT_HEX = "d204000000000000" + "0000000000000000";
 const EXPIRY_HEX = "0807060504030201";
 
 export const POST_VECTOR =
-  "426f756e7479426f6172642f76312f706f7374" + // "BountyBoard/v1/post"
+  "4465706c6163652f76312f706f7374" + // "Deplace/v1/post"
   CONTRACT_HEX +
   "07".repeat(32) + // poster
   "01" + "0500000000000000" + // poster_agent = Some(5)
@@ -26,7 +26,7 @@ export const POST_VECTOR =
   EXPIRY_HEX;
 
 export const CLAIM_VECTOR =
-  "426f756e7479426f6172642f76312f636c61696d" + // "BountyBoard/v1/claim"
+  "4465706c6163652f76312f636c61696d" + // "Deplace/v1/claim"
   CONTRACT_HEX +
   "2a00000000000000" + // bounty_id = 42
   "09".repeat(32) + // worker
@@ -34,7 +34,7 @@ export const CLAIM_VECTOR =
   EXPIRY_HEX;
 
 export const ENTER_VECTOR =
-  "426f756e7479426f6172642f76312f656e746572" + // "BountyBoard/v1/enter"
+  "4465706c6163652f76312f656e746572" + // "Deplace/v1/enter"
   CONTRACT_HEX +
   "2a00000000000000" +
   "09".repeat(32) +

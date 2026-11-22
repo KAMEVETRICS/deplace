@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { txLink } from "@bounty/shared";
+import { txLink } from "@deplace/shared";
 import { BoardError, type BoardService } from "../board/service.js";
 import type { DepositOutcome } from "../escrow/worker.js";
 

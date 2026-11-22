@@ -1,7 +1,7 @@
 [workspace]
 # MSRV-aware resolution: pick dependency versions that support rust-version 1.85.
 resolver = "3"
-members = ["bounty-board"]
+members = ["deplace"]
 
 [profile.release]
 opt-level = "s"
