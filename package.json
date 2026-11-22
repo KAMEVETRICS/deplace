@@ -10,7 +10,8 @@
   },
   "workspaces": [
     "packages/shared",
-    "server"
+    "server",
+    "agent"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
