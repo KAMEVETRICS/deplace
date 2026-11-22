@@ -3,9 +3,10 @@
 //
 //   npm run register -w agent
 //
-// The Agent Card must be served publicly, byte for byte, at AGENT_CARD_URL (the badge check
-// fetches it and compares its SHA-256 with the on-chain metadata_hash). The script writes the
-// card to server/public/agents/bounty-worker.json; publish that file at AGENT_CARD_URL.
+// The flow the registry itself describes: register first, then build the card for the minted
+// token id, publish it byte for byte at AGENT_CARD_URL, pin its SHA-256 on chain, and check
+// the badge (it fetches the card and compares the hash). The script writes the card to
+// server/public/agents/bounty-worker.json; publish that file at AGENT_CARD_URL.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -18,6 +19,8 @@ import { loadAgentKeys } from "./signer.js";
 
 const REGISTRY_MCP = "https://agent-registry-mcp.concordium.com/mcp";
 const CARD_FILE = fromRoot("server/public/agents/bounty-worker.json");
+/** Written as soon as the register transaction is sent, so a re-run never registers twice while the indexer catches up. */
+const REGISTERED_FILE = fromRoot("data/agent-register-tx.txt");
 const CARD_URL = env("AGENT_CARD_URL");
 const keys = loadAgentKeys(fromRoot(env("AGENT_KEY_FILE", "secrets/worker-agent.export")));
 const owner = keys.address;
@@ -42,7 +45,10 @@ async function tool<T = any>(name: string, args: Record<string, unknown>): Promi
 }
 
 /** Signs a build_* result as the agent's account and waits for finalization (the agent pays this one-time fee). */
-async function submit(built: { contract_address: { index: number; subindex: number }; receive_name: string; parameter_hex: string; suggested_energy?: number }) {
+async function submit(
+  built: { contract_address: { index: number; subindex: number }; receive_name: string; parameter_hex: string; suggested_energy?: number },
+  onSent: (txHash: string) => void = () => {},
+) {
   const client = new ConcordiumGRPCNodeClient(env("GRPC_HOST", "grpc.testnet.concordium.com"), Number(env("GRPC_PORT", "20000")), credentials.createSsl(), { timeout: 30_000 });
   const sender = AccountAddress.fromBase58(owner);
   const { nonce } = await client.getNextAccountNonce(sender);
@@ -58,6 +64,7 @@ async function submit(built: { contract_address: { index: number; subindex: numb
     .addMetadata({ sender, nonce, expiry: TransactionExpiry.futureMinutes(5) })
     .build();
   const hash = await client.sendTransaction(await Transaction.signAndFinalize(tx, keys.signer));
+  onSent(TransactionHash.toHexString(hash));
   console.log(`  https://ccdexplorer.io/testnet/transaction/${TransactionHash.toHexString(hash)}`);
   const out = (await client.waitForTransactionFinalization(hash)).summary as { transactionType?: string; rejectReason?: unknown };
   if (out.transactionType === "failed") throw new Error(`${built.receive_name} failed: ${JSON.stringify(out.rejectReason, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
@@ -70,59 +77,74 @@ async function myAgent(): Promise<{ token_id: number | string; metadata_hash?: s
   return mine.length ? mine[mine.length - 1] : null;
 }
 
-const cardText = (r: any): string => (typeof r.card_json === "string" ? r.card_json : JSON.stringify(r.card ?? r.card_json, null, 2));
+/** The registry returns the card as `agent_card_json`: the exact text to host. */
+function cardText(r: { agent_card_json?: unknown }): string {
+  if (typeof r?.agent_card_json !== "string") throw new Error(`the registry returned no agent_card_json (got: ${Object.keys(r ?? {}).join(", ")})`);
+  return r.agent_card_json;
+}
 
-// 1. The card, without a badge yet.
-if (!existsSync(CARD_FILE)) {
-  const r = await tool("build_agent_card", {
+// 1. Register (mints the agent NFT to this account; agentWallet = this account).
+let agent = await myAgent();
+if (!agent && existsSync(REGISTERED_FILE)) {
+  // Registered before, but the indexer does not list it yet. Registering again would mint a second agent.
+  for (let i = 0; i < 12 && !agent; i++) {
+    await new Promise((r) => setTimeout(r, 10_000));
+    agent = await myAgent();
+  }
+  if (!agent) {
+    const tx = readFileSync(REGISTERED_FILE, "utf8").trim();
+    throw new Error(`registered in https://ccdexplorer.io/testnet/transaction/${tx} but the registry indexer does not list the agent yet; run again later (delete ${REGISTERED_FILE} only if that transaction failed)`);
+  }
+}
+if (!agent) {
+  console.log(`1. registering ${owner} with agent_uri ${CARD_URL}`);
+  mkdirSync(dirname(REGISTERED_FILE), { recursive: true });
+  await submit(await tool("build_register", { sender: owner, agent_uri: CARD_URL }), (tx) => writeFileSync(REGISTERED_FILE, tx + "\n"));
+  for (let i = 0; i < 12 && !agent; i++) {
+    agent = await myAgent();
+    if (!agent) await new Promise((r) => setTimeout(r, 10_000));
+  }
+  if (!agent) throw new Error("registered, but the registry indexer does not list the agent yet; run again in a few minutes");
+}
+const tokenId = String(agent.token_id);
+console.log(`1. agent token id ${tokenId}`);
+
+// 2. The card for this token id. The registry builds it deterministically, badge block included.
+const card = cardText(
+  await tool("build_agent_card", {
     name: "Deplace reference worker",
     description: "Reference worker agent for Deplace: claims page-facts bounties, fetches the page and reports its title, visible word count and SHA-256.",
     agent_uri: CARD_URL,
     owner_account: owner,
+    token_id: tokenId,
     skills: [{ id: "page-facts", name: "Page facts", description: "Fetch a public URL and report its title, visible word count and SHA-256.", tags: ["bounty", "web"] }],
-  });
+  }),
+);
+if (!existsSync(CARD_FILE) || readFileSync(CARD_FILE, "utf8") !== card) {
   mkdirSync(dirname(CARD_FILE), { recursive: true });
-  writeFileSync(CARD_FILE, cardText(r));
-  console.log(`1. wrote ${CARD_FILE}`);
-}
-
-// 2. Register (mints the agent NFT to this account; agentWallet = this account).
-let agent = await myAgent();
-if (!agent) {
-  console.log(`2. registering ${owner} with agent_uri ${CARD_URL}`);
-  await submit(await tool("build_register", { sender: owner, agent_uri: CARD_URL }));
-  agent = await myAgent();
-  if (!agent) throw new Error("registered, but the registry indexer does not list the agent yet; run again in a minute");
-}
-const tokenId = String(agent.token_id);
-console.log(`   agent token id ${tokenId}`);
-
-// 3. Badge the card (needs the token id).
-const local = readFileSync(CARD_FILE);
-if (!local.toString("utf8").includes("concordium-badge")) {
-  writeFileSync(CARD_FILE, cardText(await tool("build_agent_badge", { card_json: local.toString("utf8"), owner_account: owner, token_id: tokenId })));
-  console.log(`3. added the badge to ${CARD_FILE}. Publish it at ${CARD_URL}, then run this again.`);
+  writeFileSync(CARD_FILE, card);
+  console.log(`2. wrote the card for token ${tokenId} to ${CARD_FILE}. Publish it at ${CARD_URL} byte for byte, then run this again.`);
   process.exit(0);
 }
 
-// 4. The served bytes must equal the local file.
+// 3. The served bytes must equal the local file.
 const served = Buffer.from(await (await fetch(CARD_URL)).arrayBuffer());
 if (!served.equals(readFileSync(CARD_FILE))) {
-  console.log(`4. ${CARD_URL} does not serve the current card yet (sha256 ${sha256(served)} vs ${sha256(readFileSync(CARD_FILE))}). Publish it, then run again.`);
+  console.log(`3. ${CARD_URL} does not serve the current card yet (sha256 ${sha256(served)} vs ${sha256(readFileSync(CARD_FILE))}). Publish it, then run again.`);
   process.exit(1);
 }
 
-// 5. Pin the card hash on chain.
+// 4. Pin the card hash on chain.
 const onChain = agent.metadata_hash_hex ?? agent.metadata_hash ?? null;
 if (onChain !== sha256(served)) {
-  console.log(`5. pinning metadata_hash ${sha256(served)}`);
+  console.log(`4. pinning metadata_hash ${sha256(served)}`);
   await submit(await tool("build_set_agent_uri", { token_id: tokenId, metadata_hash_hex: sha256(served), sender: owner }));
 }
 
-// 6. Check the badge.
+// 5. Check the badge.
 const { token_address: badge } = await tool<{ token_address: string }>("token_address", { contract_index: 12802, contract_subindex: 0, token_id: tokenId });
 const verdict = await tool<{ badge_valid: boolean; issues?: { message: string }[] }>("check_badge", { id: badge });
-console.log(`6. badge ${badge}: ${verdict.badge_valid ? "VALID" : "not valid"}`);
+console.log(`5. badge ${badge}: ${verdict.badge_valid ? "VALID" : "not valid"}`);
 for (const i of verdict.issues ?? []) console.log(`   - ${i.message}`);
 console.log(`   ${agentLink(BigInt(tokenId))}`);
 if (verdict.badge_valid) console.log(`\nAdd to .env:\nAGENT_BADGE=${badge}`);

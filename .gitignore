@@ -7,3 +7,4 @@ secrets/
 dist/
 concordium-out/
 .superpowers/
+data/
