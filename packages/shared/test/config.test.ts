@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { accountLink, agentLink, formatTokenAmount, instanceLink, txLink } from "../src/explorer.js";
+import { accountLink, agentLink, formatTokenAmount, instanceLink, parseTokenAmount, txLink } from "../src/explorer.js";
 
 describe("loadConfig", () => {
   it("uses testnet defaults and the fixed Agent Registry", () => {
@@ -34,6 +34,23 @@ describe("formatTokenAmount", () => {
     expect(formatTokenAmount(2_500_000n, 6)).toBe("2.5");
     expect(formatTokenAmount(1n, 6)).toBe("0.000001");
     expect(formatTokenAmount(0n, 6)).toBe("0");
+  });
+});
+
+describe("parseTokenAmount", () => {
+  it("turns a decimal amount into smallest units", () => {
+    expect(parseTokenAmount("2.5", 6)).toBe(2_500_000n);
+    expect(parseTokenAmount("1", 6)).toBe(1_000_000n);
+    expect(parseTokenAmount("0.000001", 6)).toBe(1n);
+    expect(parseTokenAmount("0", 6)).toBe(0n);
+    expect(parseTokenAmount(formatTokenAmount(123_456_789n, 6), 6)).toBe(123_456_789n);
+  });
+
+  it("refuses what is not a plain decimal amount, or has more decimals than the token", () => {
+    for (const bad of ["", "-1", "1e3", "1,5", " 1", "0x10", "1.", ".5", "1234567890123"]) {
+      expect(() => parseTokenAmount(bad, 6), bad).toThrow(/decimal amount/);
+    }
+    expect(() => parseTokenAmount("0.0000001", 6)).toThrow(/more than 6 decimals/);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   encodePost,
   encodeU64,
   instanceLink,
+  parseTokenAmount,
   txLink,
   type BoardEvent,
   type Bounty,
@@ -172,12 +173,13 @@ export class BoardService {
   // --- posting ----------------------------------------------------------------
 
   private parseReward(reward: string): bigint {
-    const decimals = this.d.config.tokenDecimals;
-    const m = /^(\d{1,12})(?:\.(\d+))?$/.exec(String(reward ?? ""));
-    if (!m) throw new BoardError(400, "reward must be a decimal amount such as 2 or 0.5");
-    const frac = m[2] ?? "";
-    if (frac.length > decimals) throw new BoardError(400, `reward has more than ${decimals} decimals`);
-    const units = BigInt(m[1]!) * 10n ** BigInt(decimals) + BigInt((frac + "0".repeat(decimals)).slice(0, decimals) || "0");
+    let units: bigint;
+    try {
+      // Shared with the agent, which budgets in the same units before it posts.
+      units = parseTokenAmount(String(reward ?? ""), this.d.config.tokenDecimals);
+    } catch (e) {
+      throw new BoardError(400, `reward: ${(e as Error).message}`);
+    }
     if (units <= 0n) throw new BoardError(400, "reward must be positive");
     return units;
   }
