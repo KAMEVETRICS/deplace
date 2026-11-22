@@ -27,7 +27,7 @@ For each of the five accounts:
 
 For `operator`, `poster`, `worker-agent` and `worker-human`:
 
-1. Open the testnet stablecoin faucet page (the URL from Workshop 3; add it to `FAUCET_URL` in `.env`).
+1. Open the testnet stablecoin faucet at https://allowlist.testnet.concordium.com (shown in Workshop 3). The same link is `FAUCET_URL` in `.env`, so the board can send people who are not on the allow list there.
 2. Connect the wallet with that account selected, and approve the EU-nationality proof.
 3. The faucet adds the account to the EUDemo allow list and sends 100 EUDemo. If it shows an error, wait and refresh: a known indexer issue makes the error appear even when the transfer worked.
 
