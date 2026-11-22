@@ -104,8 +104,10 @@ async function waitStatus(id: string, want: string[], timeoutMs: number) {
 
 async function recordPayouts(id: string, label: string) {
   const d = await http(`GET`, `/bounties/${id}`);
+  // Escrowed rewards are paid by the escrow account; not-funded ones by the poster on delivery.
+  const payer = d.bounty.funding.type === "Escrowed" ? "escrow" : "poster";
   for (const e of d.events.filter((x: any) => x.event.type === "PayoutRecorded")) {
-    record(`${label}: payout to ${String(e.event.to).slice(0, 8)}…`, "escrow", `https://ccdexplorer.io/testnet/transaction/${e.event.tx}`);
+    record(`${label}: payout to ${String(e.event.to).slice(0, 8)}…`, payer, `https://ccdexplorer.io/testnet/transaction/${e.event.tx}`);
     record(`${label}: payout recorded on chain`, "operator", e.link);
   }
 }
