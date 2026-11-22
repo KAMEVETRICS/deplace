@@ -16,6 +16,7 @@ import { CONCORDIUM_TESTNET_CAIP2 } from "@x402/concordium";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
+import { parseTokenAmount } from "@deplace/shared";
 import { pageFacts } from "../agent/src/tasks/page-facts.js";
 
 const BOARD = (process.env.PUBLIC_BASE_URL ?? "http://localhost:8787").replace(/\/$/, "");
@@ -72,13 +73,23 @@ async function step(a: Actor, label: string, method: string, path: string, body?
   return { ...p, ...r } as { events: { type: string; id?: string }[]; link: string; workHash?: string };
 }
 
-const paying = (a: Actor) =>
+/** Every e2e bounty pays this much of the reward token. */
+const REWARD = "1";
+const NETWORK = CONCORDIUM_TESTNET_CAIP2 as `${string}:${string}`;
+
+/**
+ * x402 payer for `a` that pays only `payTo`. A default x402Client refuses EUDemo (its
+ * default assets are USDR only, up to $1), so the reward token is allowed explicitly,
+ * capped at the e2e reward.
+ */
+const paying = (a: Actor, payTo: string) =>
   wrapFetchWithPayment(
     fetch,
-    new x402Client().register(
-      CONCORDIUM_TESTNET_CAIP2 as `${string}:${string}`,
-      new ExactConcordiumScheme({ accountAddress: AccountAddress.fromBase58(a.address), signer: buildBasicAccountSigner(a.key) }),
-    ),
+    x402Client.fromConfig({
+      schemes: [{ network: NETWORK, client: new ExactConcordiumScheme({ accountAddress: AccountAddress.fromBase58(a.address), signer: buildBasicAccountSigner(a.key) }) }],
+      policies: [(_version, reqs) => reqs.filter((r) => r.payTo === payTo)],
+      spendControls: { allowedAssets: [{ network: NETWORK, asset: config.rewardToken, maxAmountPerPayment: parseTokenAmount(REWARD, config.decimals).toString() }] },
+    }),
   );
 
 async function waitStatus(id: string, want: string[], timeoutMs: number) {
@@ -126,8 +137,8 @@ await login(agent);
 await login(human);
 
 if (scenarios.includes("A")) {
-  const id = posted(await step(poster, "A1 post Exclusive bounty", "POST", "/bounties", spec("E2E A: page facts for example.org", "Exclusive", "1", 30, "https://example.org")));
-  const res = await paying(poster)(`${BOARD}/bounties/${id}/fund`, { method: "POST", headers: { authorization: `Bearer ${poster.token}` } });
+  const id = posted(await step(poster, "A1 post Exclusive bounty", "POST", "/bounties", spec("E2E A: page facts for example.org", "Exclusive", REWARD, 30, "https://example.org")));
+  const res = await paying(poster, config.escrowAccount)(`${BOARD}/bounties/${id}/fund`, { method: "POST", headers: { authorization: `Bearer ${poster.token}` } });
   if (!res.ok) throw new Error(`x402 funding failed: HTTP ${res.status} ${await res.text()}`);
   const fund = (await res.json()) as { payment: { link: string }; funded: unknown };
   record("A2 fund escrow over x402", "poster", fund.payment.link);
@@ -142,12 +153,12 @@ if (scenarios.includes("A")) {
 }
 
 if (scenarios.includes("B")) {
-  const id = posted(await step(poster, "B1 post not-funded bounty", "POST", "/bounties", spec("E2E B: page facts for concordium.com", "Exclusive", "1", 30, "https://www.concordium.com")));
+  const id = posted(await step(poster, "B1 post not-funded bounty", "POST", "/bounties", spec("E2E B: page facts for concordium.com", "Exclusive", REWARD, 30, "https://www.concordium.com")));
   await step(agent, "B2 claim", "POST", `/bounties/${id}/claim`);
   const work = await pageFacts.run({ taskKind: "page-facts", input: { url: "https://www.concordium.com" } });
   await step(agent, "B3 submit work", "POST", `/bounties/${id}/submit`, work);
   await step(poster, "B4 accept", "POST", `/bounties/${id}/accept`);
-  const res = await paying(poster)(`${BOARD}/bounties/${id}/work`, { headers: { authorization: `Bearer ${poster.token}` } });
+  const res = await paying(poster, agent.address)(`${BOARD}/bounties/${id}/work`, { headers: { authorization: `Bearer ${poster.token}` } });
   if (!res.ok) throw new Error(`x402 pay on delivery failed: HTTP ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { items: { hashMatches: boolean }[]; payment: { link: string } };
   record(`B5 pay on delivery over x402, work hash matches: ${body.items[0]?.hashMatches}`, "poster", body.payment.link);
@@ -157,7 +168,7 @@ if (scenarios.includes("B")) {
 
 if (scenarios.includes("C")) {
   const minutes = Number(process.env.E2E_CONTEST_MINUTES ?? 4);
-  const id = posted(await step(poster, "C1 post Contest", "POST", "/bounties", spec("E2E C: contest, page facts for example.com", "Contest", "1", minutes, "https://example.com")));
+  const id = posted(await step(poster, "C1 post Contest", "POST", "/bounties", spec("E2E C: contest, page facts for example.com", "Contest", REWARD, minutes, "https://example.com")));
   await step(poster, "C2 fund escrow (direct sponsored transfer)", "POST", `/bounties/${id}/fund-transfer`);
   const work = await pageFacts.run({ taskKind: "page-facts", input: { url: "https://example.com" } });
   await step(agent, "C3 agent enters", "POST", `/bounties/${id}/submit`, work);

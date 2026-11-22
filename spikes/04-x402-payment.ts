@@ -57,10 +57,12 @@ app.use(
 app.get("/work", (_req, res) => res.json({ work: "the full deliverable" }));
 const server = app.listen(4999);
 
-const client = new x402Client().register(
-  network,
-  new ClientScheme({ accountAddress: AccountAddress.fromBase58(poster.address), signer: buildBasicAccountSigner(poster.key) }),
-);
+// A default x402Client refuses EUDemo: its default assets are USDR only, up to $1. The
+// reward token has to be allowed explicitly, here capped at the one token this spike pays.
+const client = x402Client.fromConfig({
+  schemes: [{ network, client: new ClientScheme({ accountAddress: AccountAddress.fromBase58(poster.address), signer: buildBasicAccountSigner(poster.key) }) }],
+  spendControls: { allowedAssets: [{ network, asset: tokenId, maxAmountPerPayment: amount }] },
+});
 const paying = wrapFetchWithPayment(fetch, client);
 const res = await paying("http://localhost:4999/work");
 console.log("status", res.status, await res.text());
