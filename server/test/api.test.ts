@@ -48,6 +48,7 @@ let allowList: Set<string>;
 let submitted: string[];
 let relayOutcome: { txHash: string; summary: unknown; sponsor: string | null };
 let deposits: string[];
+let observed: string[];
 let base = "";
 let close = () => {};
 let unsponsored = false;
@@ -97,6 +98,10 @@ function deps(): BoardDeps {
       submitted.push(txJson);
       return { txHash: relayOutcome.txHash, summary: relayOutcome.summary };
     },
+    outcome: async (txHash) => {
+      observed.push(txHash);
+      return { summary: relayOutcome.summary };
+    },
     eventsOf: (summary) => ((summary as { __events?: BoardEvent[] }).__events ?? []),
     noteTransfer: async (tx) => {
       deposits.push(tx);
@@ -111,6 +116,7 @@ beforeEach(async () => {
   allowList = new Set([worker.address, agentWallet.address]);
   submitted = [];
   deposits = [];
+  observed = [];
   unsponsored = false;
   relayOutcome = { txHash: "aa".repeat(32), summary: {}, sponsor: SPONSOR };
   const service = new BoardService(deps());
@@ -288,6 +294,17 @@ describe("relay and reads", () => {
     relayOutcome = { txHash: "aa".repeat(32), sponsor: null, summary: {} };
     expect((await call("POST", "/tx/submit", { txJson: "{}" })).status).toBe(400);
     expect(submitted).toEqual([]);
+  });
+
+  it("observes a transaction the browser wallet submitted itself", async () => {
+    chainBounties.set(0n, bounty(0n, { status: { type: "Claimed", worker: worker.address, agent: null } }));
+    relayOutcome = { txHash: "cc".repeat(32), sponsor: SPONSOR, summary: { __events: [{ type: "Claimed", id: 0n, worker: worker.address, agent: null }] } };
+    const r = await call("POST", "/tx/observe", { txHash: "cc".repeat(32) });
+    expect(r.status).toBe(200);
+    expect(observed).toEqual(["cc".repeat(32)]);
+    expect(submitted).toEqual([]); // nothing re-sent
+    expect((await call("GET", "/bounties/0")).body.events[0]).toMatchObject({ tx: "cc".repeat(32) });
+    expect((await call("POST", "/tx/observe", { txHash: "nope" })).status).toBe(400);
   });
 
   it("notes a funding transfer for the escrow worker", async () => {

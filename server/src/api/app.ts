@@ -76,6 +76,9 @@ export function createApp({ service, extraRouters = [], mounts = [], health }: A
   app.post("/tx/submit", async (req, res) => {
     res.json(await service.relay(req.body?.txJson));
   });
+  app.post("/tx/observe", async (req, res) => {
+    res.json(await service.observe(req.body?.txHash));
+  });
   app.get("/admin/health", async (_req, res) => {
     res.json(health ? await health() : { ok: true });
   });

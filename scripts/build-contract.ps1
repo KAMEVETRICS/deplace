@@ -5,5 +5,5 @@ using the container toolchain. On a machine with Rust 1.85 and cargo-concordium 
 #>
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 New-Item -ItemType Directory -Force (Join-Path $repo "dist") | Out-Null
-& (Join-Path $PSScriptRoot "cargo.ps1") contracts/bounty-board concordium build --out /work/dist/bounty_board.wasm.v1
+& (Join-Path $PSScriptRoot "cargo.ps1") contracts/bounty-board concordium build --out /work/dist/bounty_board.wasm.v1 --schema-base64-out /work/dist/bounty_board.schema.b64
 exit $LASTEXITCODE

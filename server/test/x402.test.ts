@@ -77,6 +77,7 @@ beforeEach(async () => {
     attestor: new Attestor("09".repeat(32), () => BigInt(NOW)),
     txSponsor: () => null,
     relay: async () => ({ txHash: "", summary: {} }),
+    outcome: async () => ({ summary: {} }),
     eventsOf: () => [],
     noteTransfer: async () => {},
     now: () => NOW,

@@ -1,7 +1,7 @@
 // Composition root: wires the board to testnet. Run: npm start -w server (reads ../.env).
 import "./env-init.js";
 import { config as loadEnv } from "dotenv";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { Router } from "express";
@@ -132,6 +132,10 @@ service = new BoardService({
     const outcome = await client.waitForTransactionFinalization(hash);
     return { txHash: TransactionHash.toHexString(hash), summary: outcome.summary };
   },
+  outcome: async (txHash) => {
+    const out = await client.waitForTransactionFinalization(TransactionHash.fromHexString(txHash), 120_000);
+    return { summary: out.summary };
+  },
   eventsOf: (summary) => eventsFromSummary(summary, contractRef),
   noteTransfer: async (tx) => {
     const note = await noter(tx);
@@ -161,9 +165,18 @@ const x402 = gateway
     });
 
 const webDist = join(root, "web", "dist");
+// The module schema lets Wallet for Web show contract parameters before the user signs.
+const schemaFile = join(root, "dist", "bounty_board.schema.b64");
+const schemaRouter = Router().get("/contract/schema", (_req, res) => {
+  if (!existsSync(schemaFile)) {
+    res.status(404).json({ error: "schema not built: run scripts/build-contract.ps1" });
+    return;
+  }
+  res.json({ type: "ModuleSchema", value: readFileSync(schemaFile, "utf8").trim(), contract: contractRef });
+});
 const app = createApp({
   service,
-  extraRouters: [x402, mcpRouter(service, { publicBaseUrl: cfg.publicBaseUrl })],
+  extraRouters: [x402, mcpRouter(service, { publicBaseUrl: cfg.publicBaseUrl }), schemaRouter],
   mounts: [
     { path: "/agents", router: agentCardRouter(join(root, "server", "public", "agents")) },
     ...(existsSync(webDist) ? [{ path: "/", router: Router().use(express.static(webDist)) }] : []),

@@ -68,6 +68,8 @@ export interface BoardDeps {
   txSponsor(txJson: string): string | null;
   /** Finalizes a sender-signed transaction, sends it and waits for finalization. */
   relay(txJson: string): Promise<{ txHash: string; summary: unknown }>;
+  /** Waits for a transaction someone else submitted (e.g. the browser wallet) to finalize. */
+  outcome(txHash: string): Promise<{ summary: unknown }>;
   eventsOf(summary: unknown): BoardEvent[];
   /** A finalized token transfer the board relayed: escrow funding (fund:<id>) or a direct payment (bounty:<id>). */
   noteTransfer(txHash: string): Promise<void>;
@@ -378,6 +380,20 @@ export class BoardService {
     if (typeof txJson !== "string" || txJson.length > 64_000) throw new BoardError(400, "txJson must be the signed transaction JSON");
     if (this.d.txSponsor(txJson) !== this.d.config.sponsorAddress) throw new BoardError(400, "only transactions prepared and co-signed by this board's sponsor are relayed");
     const { txHash, summary } = await this.d.relay(txJson);
+    return this.afterFinalized(txHash, summary);
+  }
+
+  /**
+   * The browser wallet submits sponsored transactions itself; the web app then tells the
+   * board the hash so it can record the events and transfers, as for a relayed transaction.
+   */
+  async observe(txHash: string): Promise<{ txHash: string; link: string; events: BoardEvent[] }> {
+    if (typeof txHash !== "string" || !/^[0-9a-f]{64}$/i.test(txHash)) throw new BoardError(400, "txHash must be a 64-character hex transaction hash");
+    const { summary } = await this.d.outcome(txHash.toLowerCase());
+    return this.afterFinalized(txHash.toLowerCase(), summary);
+  }
+
+  private async afterFinalized(txHash: string, summary: unknown): Promise<{ txHash: string; link: string; events: BoardEvent[] }> {
     const events = this.d.eventsOf(summary);
     if (events.length > 0) {
       this.d.store.recordEvents(txHash, events, this.d.now());

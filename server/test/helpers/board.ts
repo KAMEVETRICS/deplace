@@ -47,6 +47,7 @@ export function fakeBoard(accounts: TestAccount[], over: Partial<BoardDeps> = {}
     attestor: new Attestor("09".repeat(32), () => BigInt(NOW)),
     txSponsor: () => "sponsor",
     relay: async () => ({ txHash: "aa".repeat(32), summary: {} }),
+    outcome: async () => ({ summary: {} }),
     eventsOf: () => [],
     noteTransfer: async () => {},
     now: () => NOW,
