@@ -1,3 +1,4 @@
+import { checkPrepared, type GuardOptions } from "./rails/guard.js";
 import { signChallenge, signPrepared, type AgentKeys } from "./signer.js";
 import type { TaskHandler, TaskSpec } from "./tasks/types.js";
 
@@ -13,6 +14,8 @@ export interface WorkerOptions {
   /** Keys of the agent's registry agentWallet account: it signs the login and gets paid. */
   keys: AgentKeys;
   handlers: TaskHandler[];
+  /** What the agent will sign: checked before every signature. */
+  guard: GuardOptions;
   log(message: string): void;
   pollMs?: number;
   maxPolls?: number;
@@ -37,12 +40,24 @@ export async function login(o: Pick<WorkerOptions, "board" | "badge" | "keys">):
   return r.token;
 }
 
-async function signAndSubmit(o: WorkerOptions, prepared: { prepared: { txJson: string; feeSponsored?: boolean; notice?: string } }): Promise<string> {
+export interface Relayed {
+  txHash: string;
+  link: string;
+  events: { type: string; id?: string }[];
+}
+
+/** Checks a transaction the board prepared against the rails, signs it and has the board relay it. */
+export async function signAndSubmit(
+  o: Pick<WorkerOptions, "board" | "keys" | "guard" | "log">,
+  prepared: { prepared: { txJson: string; feeSponsored?: boolean; notice?: string } },
+  entrypoints: string[],
+): Promise<Relayed> {
   if (prepared.prepared.notice) o.log(`  note: ${prepared.prepared.notice}`);
+  checkPrepared(prepared.prepared.txJson, entrypoints, o.guard); // throws RailViolation instead of signing
   const signed = await signPrepared(o.keys, prepared.prepared.txJson);
-  const r = await o.board.call<{ txHash: string; link: string }>("submit_signed", { tx_json: signed });
+  const r = await o.board.call<Relayed>("submit_signed", { tx_json: signed });
   o.log(`  ${r.link}`);
-  return r.txHash;
+  return r;
 }
 
 async function waitForOutcome(o: WorkerOptions, id: string): Promise<string> {
@@ -84,12 +99,15 @@ export async function workOne(o: WorkerOptions): Promise<{ bountyId: string; sta
 
   if (b.kind === "Exclusive") {
     o.log(`claiming bounty ${id}`);
-    txs.push(await signAndSubmit(o, await o.board.call("prepare_claim", { session, bounty_id: id })));
+    txs.push((await signAndSubmit(o, await o.board.call("prepare_claim", { session, bounty_id: id }), ["claim"])).txHash);
   }
   for (let resubmits = 0; ; resubmits++) {
     const work = await handler.run(b.spec!);
     o.log(`${b.kind === "Exclusive" ? "submitting" : "entering"} work for bounty ${id}`);
-    txs.push(await signAndSubmit(o, await o.board.call("prepare_submit", { session, bounty_id: id, preview: work.preview, full: work.full })));
+    const submitted = await signAndSubmit(o, await o.board.call("prepare_submit", { session, bounty_id: id, preview: work.preview, full: work.full }), [
+      b.kind === "Exclusive" ? "submit" : "enter",
+    ]);
+    txs.push(submitted.txHash);
     const status = await waitForOutcome(o, id);
     if (status === "Claimed" && resubmits < (o.maxResubmits ?? 2)) {
       o.log("the poster rejected the work; resubmitting");

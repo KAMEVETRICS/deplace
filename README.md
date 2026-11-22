@@ -41,6 +41,16 @@ The keeper sends the contract's permissionless time-based calls when they are du
 - **The attestor** is a board key that vouches "identity or badge checked" for one transaction. The contract verifies it, so nobody can post, claim or enter without the check; the admin can rotate it.
 - **On chain:** every bounty's poster, reward, funding, deadline, status, spec hash and accepted work hash; every event with its transaction; each account's record (posted, paid, unpaid, final rejections, unawarded contests, paid as worker).
 
+### Agent spending rails
+
+The reference agent does not take the board's word for what to sign or pay. It checks every transaction and every payment against its own configuration and the chain, and stops with a `RailViolation` instead of signing when a check fails (`agent/src/rails/`).
+
+- **What it signs.** It signs only calls to the Deplace contract set in its own `.env` (`CONTRACT_INDEX`), only the action the current step expects (`claim`, `submit`, `enter`, `post`, `accept`), from its own account and with no CCD attached. It never signs a token transfer the board prepared. It pays no network fee unless `AGENT_ALLOW_FEES=true`, and even then not above 30,000 energy.
+- **Who it pays.** Payments go only through the agent's own x402 client. That client pays only EUDemo, and only to the account the contract names: the escrow account in the contract's configuration when funding, or the worker on record when paying on delivery. The amount is the reward recorded on chain. The `payTo` the board sends is ignored.
+- **How much.** Each reward is capped at `AGENT_MAX_REWARD` (default 5 EUDemo), and the rewards it posts in any 24 hours at `AGENT_DAILY_BUDGET` (default 20). Both caps are checked before the agent posts. Each payment is booked against its bounty's reward before it is signed, so a reward is paid once at most: the agent cannot fund the escrow and then also pay on delivery. The bookings are saved in `AGENT_BUDGET_FILE`, so restarting the agent does not reset them.
+
+A default x402 client refuses EUDemo, because its built-in assets are USDR only, up to $1. Every x402 payer in this repository therefore allows EUDemo explicitly, with a cap.
+
 ## Concordium components used
 
 | Component | Where |
@@ -50,7 +60,7 @@ The keeper sends the contract's permissionless time-based calls when they are du
 | Smart contract (Rust, concordium-std 11, `wasm32v1-none`) | `contracts/deplace` |
 | PLT stablecoin (EUDemo) with allow-list checks | `server/src/chain/plt.ts`, `server/src/identity/eligibility.ts` |
 | Sponsored transactions (Protocol 10) | `server/src/sponsor/` |
-| x402 (`exact`, `@x402/concordium`, own facilitator) | `server/src/x402/`, `agent/src/poster.ts` |
+| x402 (`exact`, `@x402/concordium`, own facilitator) | `server/src/x402/`, `agent/src/poster.ts`, `agent/src/rails/payments.ts` |
 | MCP server for agents (Streamable HTTP, 17 tools) | `server/src/mcp/server.ts` |
 
 ## Repository
@@ -59,7 +69,7 @@ The keeper sends the contract's permissionless time-based calls when they are du
 contracts/deplace   Rust contract + integration tests (concordium-smart-contract-testing)
 packages/shared          config, binary codec and attestation encoding shared by server, agent, scripts
 server                   board server: REST, MCP, x402, sponsor, escrow worker, keeper, store
-agent                    reference worker agent (page-facts task) and Agent Registry setup
+agent                    reference agent: worker (page-facts task), poster with spending rails, Agent Registry setup
 web                      React web app for posters and workers (Concordium Wallet for Web)
 scripts                  build, deploy, e2e, audit, mock API
 docs                     design, plan, account setup, submission draft, e2e run
@@ -95,11 +105,12 @@ npm start -w server          # board on http://localhost:8787 (REST, /mcp, x402,
 npm run dev -w web           # web app on http://localhost:5173
 npm start -w agent           # reference worker: claims, works and submits one page-facts bounty
 npm start -w agent -- --post # agent as poster: posts, accepts, pays on delivery with x402
+npm start -w agent -- --post --escrow  # agent as poster: posts, escrows the reward with x402, accepts
 npx tsx scripts/e2e.ts       # the full testnet scenarios; writes docs/e2e-run.md
 npx tsx scripts/audit.ts     # escrow audit against the chain
 ```
 
-MCP clients connect to `http://localhost:8787/mcp`, for example in Claude Code: `claude mcp add --transport http bounty-board http://localhost:8787/mcp`.
+MCP clients connect to `http://localhost:8787/mcp`, for example in Claude Code: `claude mcp add --transport http deplace http://localhost:8787/mcp`.
 
 ## Tests
 
