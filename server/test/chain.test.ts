@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { AccountAddress, ReturnValue, TransactionHash } from "@concordium/web-sdk";
+import { AccountAddress, ContractEvent, ReturnValue, TransactionHash } from "@concordium/web-sdk";
 import { Cbor, CborMemo, TokenAmount, TokenHolder, TokenId } from "@concordium/web-sdk/plt";
-import { BountyContract, ContractRejected } from "../src/chain/contract.js";
+import { BountyContract, ContractRejected, eventsFromSummary } from "../src/chain/contract.js";
 import { PltClient } from "../src/chain/plt.js";
 
 const acct = (fill: number) => AccountAddress.fromBuffer(new Uint8Array(32).fill(fill).buffer);
@@ -58,6 +58,30 @@ describe("BountyContract views", () => {
   it("names the error when a view is rejected", async () => {
     const node = fakeNode({ "bounty_board.view_split": { failure: -13 } });
     await expect(new BountyContract(node.client, contract).split(1n)).rejects.toThrow(/NotFound/);
+  });
+});
+
+describe("eventsFromSummary", () => {
+  const ours = { index: 13001n, subindex: 0n };
+  const POSTED =
+    "00" + "0000000000000000" + "03".repeat(32) + "00" + "00" + "6400000000000000" + "ab".repeat(32) + "0807060504030201";
+
+  it("decodes our contract's events and ignores other contracts", () => {
+    const summary = {
+      transactionType: "update",
+      events: [
+        { tag: "Updated", address: ours, events: [ContractEvent.fromHexString(POSTED)] },
+        { tag: "Updated", address: { index: 12802n, subindex: 0n }, events: [ContractEvent.fromHexString("ff")] },
+      ],
+    };
+    const evs = eventsFromSummary(summary, ours);
+    expect(evs).toHaveLength(1);
+    expect(evs[0]).toMatchObject({ type: "Posted", id: 0n, reward: 100n });
+  });
+
+  it("returns nothing for non-update transactions", () => {
+    expect(eventsFromSummary({ transactionType: "tokenUpdate", events: [] }, ours)).toEqual([]);
+    expect(eventsFromSummary({ transactionType: "failed" }, ours)).toEqual([]);
   });
 });
 

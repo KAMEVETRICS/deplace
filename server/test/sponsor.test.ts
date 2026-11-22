@@ -112,6 +112,17 @@ describe("sponsored transactions", () => {
     expect(prepared.txJson).toContain("EUDemo");
   });
 
+  it("fee_fallback_flag: a type that cannot be sponsored is built for the sender to pay, and says so", async () => {
+    const service = new SponsorService(policy(), { ...deps, unsponsoredTypes: new Set(["plt-transfer"]) });
+    const prepared = await service.prepare(transfer(escrow, "fund:2"), poster);
+    expect(prepared.feeSponsored).toBe(false);
+    expect(prepared.notice).toMatch(/network fee applies/i);
+    const tx = Transaction.signableFromJSON(JSON.parse(prepared.txJson));
+    expect(tx.version).toBe(0);
+    // Contract calls are still sponsored.
+    await expect(service.prepare(contract("claim"), worker)).resolves.toMatchObject({ feeSponsored: true });
+  });
+
   it("the service refuses what the policy refuses", async () => {
     const service = new SponsorService(policy(), deps);
     await expect(service.prepare(contract("record_payout"), poster)).rejects.toBeInstanceOf(SponsorRefused);

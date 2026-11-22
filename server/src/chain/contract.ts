@@ -1,7 +1,9 @@
-import { ContractAddress, Parameter, ReceiveName, ReturnValue, type ConcordiumGRPCClient } from "@concordium/web-sdk";
+import { ContractAddress, ContractEvent, Parameter, ReceiveName, ReturnValue, type ConcordiumGRPCClient } from "@concordium/web-sdk";
 import {
   contractErrorName,
   decodeConfig,
+  decodeEvent,
+  type BoardEvent,
   decodeOptionBounty,
   decodeOptionEntry,
   decodeSplit,
@@ -28,6 +30,25 @@ export class ContractRejected extends Error {
     this.name = "ContractRejected";
     this.errorName = contractErrorName(code);
   }
+}
+
+/**
+ * bounty_board events in a finalized transaction's summary (contract updates log them as
+ * hex under each `Updated`/`Interrupted` trace element of our instance).
+ */
+export function eventsFromSummary(summary: unknown, contract: ContractRef): BoardEvent[] {
+  const s = summary as { transactionType?: string; events?: { tag?: string; address?: { index: bigint; subindex: bigint }; events?: unknown[] }[] };
+  if (s?.transactionType !== "update" || !Array.isArray(s.events)) return [];
+  const out: BoardEvent[] = [];
+  for (const t of s.events) {
+    if ((t?.tag !== "Updated" && t?.tag !== "Interrupted") || !t.address) continue;
+    if (t.address.index !== contract.index || t.address.subindex !== contract.subindex) continue;
+    for (const e of t.events ?? []) {
+      const hex = typeof e === "string" ? e : ContractEvent.toHexString(e as ContractEvent.Type);
+      out.push(decodeEvent(new Uint8Array(Buffer.from(hex, "hex"))));
+    }
+  }
+  return out;
 }
 
 /** Read access to bounty_board through the node's invokeContract (no transaction, no fee). */

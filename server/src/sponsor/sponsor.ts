@@ -28,14 +28,23 @@ export interface SponsorDeps {
   /** Execution energy cap for contract updates. The fee is charged on energy actually used. */
   maxContractEnergy?: bigint;
   expiryMinutes?: number;
+  /**
+   * Transaction types that cannot be sponsored on this network (set from the day-1 spike
+   * results). They are built for the sender to pay, and the response says so.
+   */
+  unsponsoredTypes?: Set<Intent["type"]>;
 }
 
+export const FEE_NOTICE = "Network fee applies: this transaction type cannot be sponsored right now, so your account pays a small CCD fee.";
+
 export interface PreparedTx {
-  /** Sponsor-signed transaction (web-sdk Transaction JSON). The sender adds its signature and submits. */
+  /** Web-sdk Transaction JSON. When sponsored, the sponsor has signed; the sender adds its signature and submits. */
   txJson: string;
   sender: string;
   expiresAt: number;
-  feeSponsored: true;
+  feeSponsored: boolean;
+  /** Present when the sender pays the fee. */
+  notice?: string;
 }
 
 /** Server-side errors a caller should show to the user, not log as failures. */
@@ -51,8 +60,9 @@ export class SponsorRefused extends Error {
 
 type Meta = { sender: AccountAddress.Type; nonce: SequenceNumber.Type; expiry: TransactionExpiry.Type };
 
-async function sponsoredFor(deps: SponsorDeps, intent: Intent, meta: Meta, sponsor: AccountAddress.Type): Promise<Transaction.Signable> {
-  // Each branch sponsors its own concrete transaction type; the SDK's generics do not accept a union.
+/** Builds the transaction; with `sponsor`, also adds and signs the sponsorship. */
+async function signableFor(deps: SponsorDeps, intent: Intent, meta: Meta, sponsor: AccountAddress.Type | null): Promise<Transaction.Signable> {
+  // Each branch handles its own concrete transaction type; the SDK's generics do not accept a union.
   if (intent.type === "contract") {
     const tx = Transaction.updateContract(
       {
@@ -62,26 +72,27 @@ async function sponsoredFor(deps: SponsorDeps, intent: Intent, meta: Meta, spons
         message: Parameter.fromBuffer(intent.parameter.slice().buffer),
       },
       Energy.create(deps.maxContractEnergy ?? 30_000n),
-    )
-      .addMetadata(meta)
-      .addSponsor(sponsor)
-      .build();
-    return Transaction.sponsor(tx, deps.sponsor.signer);
+    ).addMetadata(meta);
+    return sponsor ? Transaction.sponsor(tx.addSponsor(sponsor).build(), deps.sponsor.signer) : tx.build();
   }
-  const tokenId = TokenId.fromString(intent.token);
   const tx = Transaction.tokenUpdate(
-    createTokenUpdatePayload(tokenId, {
+    createTokenUpdatePayload(TokenId.fromString(intent.token), {
       transfer: {
         amount: TokenAmount.create(intent.amount, deps.tokenDecimals),
         recipient: CborAccountAddress.fromAccountAddress(AccountAddress.fromBase58(intent.to)),
         memo: CborMemo.fromString(intent.memo),
       },
     }),
-  )
-    .addMetadata(meta)
-    .addSponsor(sponsor)
-    .build();
-  return Transaction.sponsor(tx, deps.sponsor.signer);
+  ).addMetadata(meta);
+  return sponsor ? Transaction.sponsor(tx.addSponsor(sponsor).build(), deps.sponsor.signer) : tx.build();
+}
+
+async function meta(deps: SponsorDeps, sender: string): Promise<Meta> {
+  return {
+    sender: AccountAddress.fromBase58(sender),
+    nonce: SequenceNumber.create(await deps.nextNonce(sender)),
+    expiry: TransactionExpiry.futureMinutes(deps.expiryMinutes ?? 5),
+  };
 }
 
 /**
@@ -90,15 +101,22 @@ async function sponsoredFor(deps: SponsorDeps, intent: Intent, meta: Meta, spons
  * signature is still missing; neither party can change the transaction afterwards.
  */
 export async function buildSponsored(deps: SponsorDeps, intent: Intent, sender: string): Promise<PreparedTx> {
-  const minutes = deps.expiryMinutes ?? 5;
-  const nonce = await deps.nextNonce(sender);
-  const meta: Meta = {
-    sender: AccountAddress.fromBase58(sender),
-    nonce: SequenceNumber.create(nonce),
-    expiry: TransactionExpiry.futureMinutes(minutes),
+  const m = await meta(deps, sender);
+  const sponsored = await signableFor(deps, intent, m, AccountAddress.fromBase58(deps.sponsor.address));
+  return { txJson: Transaction.toJSONString(sponsored), sender, expiresAt: Date.now() + (deps.expiryMinutes ?? 5) * 60_000, feeSponsored: true };
+}
+
+/** The explicit fallback: the same transaction, but the sender pays the fee. */
+export async function buildUnsponsored(deps: SponsorDeps, intent: Intent, sender: string): Promise<PreparedTx> {
+  const m = await meta(deps, sender);
+  const tx = await signableFor(deps, intent, m, null);
+  return {
+    txJson: Transaction.toJSONString(tx),
+    sender,
+    expiresAt: Date.now() + (deps.expiryMinutes ?? 5) * 60_000,
+    feeSponsored: false,
+    notice: FEE_NOTICE,
   };
-  const sponsored = await sponsoredFor(deps, intent, meta, AccountAddress.fromBase58(deps.sponsor.address));
-  return { txJson: Transaction.toJSONString(sponsored), sender, expiresAt: Date.now() + minutes * 60_000, feeSponsored: true };
 }
 
 export class SponsorService {
@@ -110,6 +128,7 @@ export class SponsorService {
   async prepare(intent: Intent, sender: string, badge?: string): Promise<PreparedTx> {
     const decision = await this.policy.check(intent, sender, badge);
     if (!decision.ok) throw new SponsorRefused(decision.reason, decision.retryAfter);
+    if (this.deps.unsponsoredTypes?.has(intent.type)) return buildUnsponsored(this.deps, intent, sender);
     return buildSponsored(this.deps, intent, sender);
   }
 }
