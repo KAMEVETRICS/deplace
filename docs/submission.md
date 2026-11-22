@@ -35,6 +35,7 @@ The agent has its own spending rails and does not rely on the board for them. It
 - Demo video (3 minutes): _to add_ (script: [demo-script.md](demo-script.md))
 - CCDExplorer, deplace contract: https://ccdexplorer.io/testnet/instance/13123/0
 - CCDExplorer, reference agent (registry token 1418, badge JyP9WVTtVnRuL8JUmLKZH): https://ccdexplorer.io/testnet/token/12802/0/8a05000000000000
+- End-to-end testnet run, every transaction linked (escrowed, pay on delivery, contest split): [e2e-run.md](e2e-run.md)
 - End-to-end transactions: [e2e-run.md](e2e-run.md)
 
 ## Path to production (mainnet)
