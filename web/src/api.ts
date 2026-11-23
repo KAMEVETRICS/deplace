@@ -1,4 +1,4 @@
-import type { Bounty, BoardConfig, Identity, Prepared, Stats } from "./types.js";
+import type { Bounty, BoardConfig, Identity, Names, Prepared, Stats } from "./types.js";
 
 export class ApiError extends Error {
   constructor(
@@ -49,6 +49,7 @@ export interface PreparedResponse {
 }
 
 export interface Detail {
+  names?: Names;
   bounty: Bounty;
   spec: Bounty["spec"];
   submission: { workHash: string; preview: string | null } | null;
@@ -63,9 +64,11 @@ export const api = {
   schema: () => call<{ type: "ModuleSchema"; value: string }>("GET", "/contract/schema"),
   challenge: (account: string) => call<{ nonce: string; message: string }>("POST", "/auth/challenge", { account }),
   login: (account: string, nonce: string, signature: unknown) => call<{ token: string; identity: Identity }>("POST", "/auth/login", { account, nonce, signature }),
-  bounties: (q: Record<string, string>) => call<{ bounties: Bounty[] }>("GET", `/bounties?${new URLSearchParams(q)}`),
+  setUsername: (username: string) => call<{ username: string }>("PUT", "/me/username", { username }),
+  bounties: (q: Record<string, string>) => call<{ bounties: Bounty[]; names?: Names }>("GET", `/bounties?${new URLSearchParams(q)}`),
   bounty: (id: string) => call<Detail>("GET", `/bounties/${id}`),
-  profile: (account: string) => call<{ account: string; stats: Stats; identity: { kind: string; idpName: string } | null; link: string }>("GET", `/profiles/${account}`),
+  profile: (account: string) =>
+    call<{ account: string; stats: Stats; identity: { kind: string; idpName: string } | null; link: string; names?: Names }>("GET", `/profiles/${account}`),
   post: (spec: unknown) => call<PreparedResponse>("POST", "/bounties", spec),
   act: (id: string, action: string, body: unknown = {}) => call<PreparedResponse>("POST", `/bounties/${id}/${action}`, body),
   observe: (txHash: string) => call<{ txHash: string; link: string; events: { type: string; id?: string }[] }>("POST", "/tx/observe", { txHash }),

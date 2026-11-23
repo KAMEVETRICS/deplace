@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { WalletApi } from "@concordium/browser-wallet-api-helpers";
 import { api, ApiError, setToken, type PreparedResponse } from "./api.js";
-import type { BoardConfig, Identity } from "./types.js";
+import type { BoardConfig, Identity, Names } from "./types.js";
 import { untilLoaded } from "./retry.js";
 import { connectWallet, sendPrepared } from "./wallet.js";
 
@@ -20,6 +20,13 @@ interface Session {
   toast: Toast | null;
   setToast(t: Toast | null): void;
   connect(): Promise<void>;
+  /** Forgets the wallet and the board session. */
+  signOut(): void;
+  /** Saves the signed-in person's username; throws the board's message when it cannot be used. */
+  setUsername(name: string): Promise<void>;
+  /** Display names learned from the board ("@name", "Agent #N"), by account. */
+  names: Names;
+  learnNames(names: Names | undefined): void;
   /** Asks the board for a prepared transaction, has the wallet sign and send it, then reports it. */
   run(label: string, prepare: () => Promise<PreparedResponse>): Promise<{ events: { type: string; id?: string }[]; prepared: PreparedResponse } | null>;
 }
@@ -111,6 +118,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [provider, account, schema],
   );
 
-  const value = useMemo(() => ({ config, account, identity, busy, toast, setToast, connect, run }), [config, account, identity, busy, toast, connect, run]);
+  const [names, setNames] = useState<Names>({});
+  const learnNames = useCallback((more: Names | undefined) => {
+    if (more && Object.keys(more).length > 0) setNames((n) => ({ ...n, ...more }));
+  }, []);
+
+  const signOut = useCallback(() => {
+    setToken(null);
+    setProvider(null);
+    setAccount(null);
+    setIdentity(null);
+    setToast(null);
+  }, []);
+
+  const setUsername = useCallback(
+    async (name: string) => {
+      const r = await api.setUsername(name);
+      setIdentity((i) => (i ? { ...i, username: r.username } : i));
+      if (account) learnNames({ [account]: `@${r.username}` });
+      setToast({ kind: "ok", text: `Welcome, @${r.username}.` });
+    },
+    [account, learnNames],
+  );
+
+  const value = useMemo(
+    () => ({ config, account, identity, busy, toast, setToast, connect, signOut, setUsername, names, learnNames, run }),
+    [config, account, identity, busy, toast, connect, signOut, setUsername, names, learnNames, run],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

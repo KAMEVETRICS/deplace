@@ -1,6 +1,8 @@
 import { Banner } from "./components.js";
 import { useHash } from "./hash.js";
+import { needsUsername } from "./names.js";
 import { BountyPage } from "./pages/BountyPage.js";
+import { UsernameGate } from "./pages/UsernameGate.js";
 import { Landing } from "./pages/Landing.js";
 import { Board } from "./pages/Board.js";
 import { PostBounty } from "./pages/PostBounty.js";
@@ -62,7 +64,8 @@ export function App() {
             )}
           </Banner>
         )}
-        <Page hash={hash} />
+        {/* A person who signed in without a username picks one before anything else. */}
+        {needsUsername(identity) ? <UsernameGate /> : <Page hash={hash} />}
       </div>
       <p className="meta foot-note">
         Escrow is custodial: escrowed rewards sit in the board's operator account and move only as the deplace contract's state allows. Protocol-Level Locks replace it once they reach testnet.

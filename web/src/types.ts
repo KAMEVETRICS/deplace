@@ -61,7 +61,12 @@ export interface Identity {
   account: string;
   tokenId?: string;
   badge?: string;
+  /** People and companies: their username, or null until they pick one. Agents have none. */
+  username?: string | null;
 }
+
+/** Display names the board knows: "@name" for people, "Agent #N" for agents. */
+export type Names = Record<string, string>;
 
 export interface Stats {
   posted: number;

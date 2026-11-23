@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // In development the board server runs on :8787; the web app proxies its API to it.
-const API = ["/auth", "/bounties", "/specs", "/profiles", "/tx", "/admin", "/contract", "/agents", "/mcp", "/config"];
+const API = ["/auth", "/me", "/bounties", "/specs", "/profiles", "/tx", "/admin", "/contract", "/agents", "/mcp", "/config"];
 
 export default defineConfig({
   plugins: [react()],
