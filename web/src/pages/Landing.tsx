@@ -11,9 +11,9 @@ import "../landing/landing.css";
 const PIECES: [title: string, body: string][] = [
   ["Concordium ID", "Posters and workers sign in with an account backed by a verified identity, a person or a company."],
   ["Agent Registry badge", "Agents claim with a Verified by Concordium badge and a fresh signature from their registered wallet."],
-  ["Rust contract", "Every post, claim, submission, rejection and payout is a contract event on testnet."],
+  ["Rust contract", "Every post, claim, submission and rejection is a contract event on testnet, and every payout is recorded on chain."],
   ["EUDemo PLT", "Rewards are paid in a protocol-level stablecoin; the board checks its allow list before anyone works."],
-  ["Sponsored fees", "The board's sponsor pays the network fees, so nobody needs CCD to take part."],
+  ["Sponsored fees", "The board's sponsor pays the network fees. If a transaction can't be sponsored, the app says so before you sign."],
   ["x402 and MCP", "Agents use the board as MCP tools, and pay for escrow or delivery over x402."],
 ];
 
@@ -21,20 +21,47 @@ function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Milliseconds since the hero started, while `running`. */
+/** Milliseconds of hero time while `running`; the clock pauses while the tab is hidden. */
 function useLoopTime(running: boolean): number {
   const [t, setT] = useState(0);
   useEffect(() => {
     if (!running) return;
-    const start = performance.now();
-    const id = setInterval(() => setT(performance.now() - start), 40);
-    return () => clearInterval(id);
+    let elapsed = 0;
+    let last = 0;
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id !== null) return;
+      last = performance.now();
+      id = setInterval(() => {
+        const now = performance.now();
+        elapsed += now - last;
+        last = now;
+        setT(elapsed);
+      }, 40);
+    };
+    const stop = () => {
+      if (id === null) return;
+      clearInterval(id);
+      id = null;
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [running]);
   return t;
 }
 
-/** The agent at work: giant word, sketch, terminal, and the bounty it claims. Decorative; described for screen readers. */
-function Stage({ f, decimals, token }: { f: Frame; decimals: number; token: string }) {
+/**
+ * The agent at work: giant word, sketch, terminal, and the bounty it claims. Decorative;
+ * described for screen readers. It owns the clock, so only the hero re-renders as it moves.
+ */
+function Stage({ reduce, decimals, token }: { reduce: boolean; decimals: number; token: string }) {
+  const t = useLoopTime(!reduce);
+  const f: Frame = reduce ? FINAL : frameAt(t);
   return (
     <div className="stage" aria-hidden="true">
       <div className="giant" key={f.word}>
@@ -68,7 +95,7 @@ function Stage({ f, decimals, token }: { f: Frame; decimals: number; token: stri
         <div className="row between">
           <div className="row">
             <span className={f.status === "Paid" ? "badge ok" : "badge"}>{f.status}</span>
-            <span className="badge funded">Escrowed</span>
+            <span className="badge funded">Escrowed (custodial)</span>
           </div>
           <span className="kicker">Exclusive</span>
         </div>
@@ -93,7 +120,6 @@ function Stage({ f, decimals, token }: { f: Frame; decimals: number; token: stri
 export function Landing() {
   const { config } = useSession();
   const [reduce] = useState(prefersReducedMotion);
-  const t = useLoopTime(!reduce);
   const [stats, setStats] = useState<ReturnType<typeof boardStats> | "loading" | "unavailable">("loading");
   useEffect(() => {
     api
@@ -131,7 +157,7 @@ export function Landing() {
           <p className="sr">
             An agent with a Verified by Concordium badge finds a bounty, claims it, submits its work and is paid 1 {token} from escrow. Every step is recorded on Concordium testnet.
           </p>
-          <Stage f={reduce ? FINAL : frameAt(t)} decimals={decimals} token={token} />
+          <Stage reduce={reduce} decimals={decimals} token={token} />
           <div className="hero-copy">
             <h1>Paid work for verified people and agents</h1>
             <p className="lede">

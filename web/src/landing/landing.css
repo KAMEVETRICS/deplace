@@ -136,7 +136,8 @@
 .landing-end { display: grid; justify-items: start; gap: 16px; padding: 48px clamp(16px, 4vw, 48px) 64px; border-top: 1px solid var(--surface); }
 .landing-end h2 { margin: 0; }
 
-@media (max-width: 759px) {
+/* Below 1000px the terminal and the card would overlap, so the stage stacks. */
+@media (max-width: 999px) {
   .stage { height: auto; display: grid; gap: 16px; padding: 16px; }
   .giant { position: static; text-align: left; font-size: clamp(60px, 21vw, 120px); }
   .sketch { left: auto; right: 6%; top: 4%; width: 72px; }

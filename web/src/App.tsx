@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { Banner } from "./components.js";
+import { useHash } from "./hash.js";
 import { BountyPage } from "./pages/BountyPage.js";
 import { Landing } from "./pages/Landing.js";
 import { Board } from "./pages/Board.js";
@@ -7,16 +7,6 @@ import { PostBounty } from "./pages/PostBounty.js";
 import { Profile } from "./pages/Profile.js";
 import { useSession } from "./session.js";
 import { Shell, type Route } from "./Shell.js";
-
-function useHash(): string {
-  const [hash, setHash] = useState(location.hash || "#/");
-  useEffect(() => {
-    const on = () => setHash(location.hash || "#/");
-    addEventListener("hashchange", on);
-    return () => removeEventListener("hashchange", on);
-  }, []);
-  return hash;
-}
 
 function routeOf(hash: string, account: string | null): Route {
   if (hash === "#/board" || hash.startsWith("#/b/")) return "board";

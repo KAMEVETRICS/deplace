@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { FINAL, LOOP_MS, STEPS, WORDS, boardStats, frameAt } from "../src/landing/timeline.js";
 import type { Bounty } from "../src/types.js";
 
@@ -45,6 +45,51 @@ describe("landing page", () => {
     bountiesMock.mockRejectedValue(new Error("down"));
     render(<Landing />);
     expect(await screen.findAllByText("–")).toHaveLength(3);
+  });
+
+  it("makes no claim the app does not keep", () => {
+    const { container } = render(<Landing />);
+    const text = container.textContent!;
+    expect(text).not.toMatch(/nobody needs CCD/i);
+    expect(text).toContain("Escrowed (custodial)");
+    expect(text).toMatch(/payout is recorded on chain/i);
+  });
+});
+
+describe("hero clock", () => {
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  };
+  beforeEach(() => {
+    vi.useFakeTimers();
+    bountiesMock.mockResolvedValue({ bounties: [] });
+  });
+  afterEach(() => {
+    cleanup();
+    setHidden(false);
+    vi.useRealTimers();
+  });
+
+  it("runs no timer when the visitor prefers reduced motion", () => {
+    reducedMotion(true);
+    render(<Landing />);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("runs while shown, pauses while the tab is hidden, and stops when the page goes", () => {
+    reducedMotion(false);
+    const { unmount } = render(<Landing />);
+    expect(vi.getTimerCount()).toBe(1);
+    setHidden(true);
+    expect(vi.getTimerCount()).toBe(0);
+    setHidden(false);
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
