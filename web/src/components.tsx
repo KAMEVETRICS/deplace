@@ -1,5 +1,20 @@
 import type { ReactNode } from "react";
+import { Icon } from "./icons.js";
 import type { Funding, Prepared, Status } from "./types.js";
+
+/** A message on the page. Errors are announced as alerts, everything else as status. */
+export function Banner({ kind, role, onDismiss, children }: { kind: "ok" | "err" | "info" | "fund"; role?: "alert" | "status"; onDismiss?: () => void; children: ReactNode }) {
+  return (
+    <div className={kind === "info" ? "banner" : `banner ${kind}`} role={role ?? (kind === "err" ? "alert" : "status")}>
+      <span className="grow">{children}</span>
+      {onDismiss && (
+        <button className="icon-btn ghost" aria-label="Dismiss" onClick={onDismiss}>
+          <Icon name="close" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export const EXPLORER = "https://ccdexplorer.io/testnet";
 

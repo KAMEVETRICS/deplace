@@ -1,9 +1,29 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
+import { Banner, FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
 
 afterEach(cleanup);
+
+describe("Banner", () => {
+  it("shows the message and its links, and can be dismissed", () => {
+    let dismissed = false;
+    render(
+      <Banner kind="ok" onDismiss={() => (dismissed = true)}>
+        Done. <a href="https://ccdexplorer.io/testnet/transaction/ab">View on CCDExplorer</a>
+      </Banner>,
+    );
+    expect(screen.getByRole("status").textContent).toMatch(/Done\./);
+    expect(screen.getByRole("link", { name: "View on CCDExplorer" })).toBeTruthy();
+    screen.getByRole("button", { name: "Dismiss" }).click();
+    expect(dismissed).toBe(true);
+  });
+
+  it("announces errors as alerts", () => {
+    render(<Banner kind="err">Wallet refused</Banner>);
+    expect(screen.getByRole("alert").textContent).toMatch(/Wallet refused/);
+  });
+});
 
 describe("FundingBadge", () => {
   it("says the escrow is custodial", () => {
