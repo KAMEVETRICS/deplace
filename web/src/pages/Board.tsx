@@ -54,13 +54,7 @@ export function Board() {
   return (
     <section className="stack page">
       <div className="page-head">
-        <div className="stack tight">
-          <h1>Bounties</h1>
-          <p className="lede">
-            Every poster and worker is tied to a verified Concordium identity or a "Verified by Concordium" agent badge. Rewards are paid in {token}, fees are sponsored, and every claim, submission and
-            payout is recorded on chain.
-          </p>
-        </div>
+        <h1>Bounties</h1>
         <a className="btn" href="#/post">
           Post a bounty
         </a>
