@@ -47,7 +47,7 @@ nav a, .brand, .btn, .card, .userchip, .icon-btn { text-decoration: none; }
 img { max-width: 100%; }
 code, pre { font: 0.875rem/1.45 var(--mono); }
 
-h1, h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0 0 8px; line-height: 1.15; text-wrap: balance; color: var(--text); }
+h1, h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0 0 8px; line-height: 1.15; text-wrap: balance; overflow-wrap: anywhere; color: var(--text); }
 h1 { font-size: 1.75rem; letter-spacing: -0.01em; }
 h2 { font-size: 1.25rem; }
 h3, h4 { font-size: 1.125rem; }
@@ -139,8 +139,10 @@ p { margin: 0 0 8px; color: var(--muted); text-wrap: pretty; overflow-wrap: anyw
 }
 @media (max-width: 959px) {
   .userchip { padding: 4px; background: transparent; }
-  .userchip > span:last-child { display: none; }
+  /* Hidden visually only, so screen readers still hear the label and short address. */
+  .userchip > span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
+.main:focus { outline: none; }
 
 /* ---- layout helpers ---- */
 .stack { display: grid; gap: 12px; min-width: 0; }
@@ -171,6 +173,10 @@ a.card:hover { border-color: var(--line); }
 .price { font-family: var(--display); font-size: 1.375rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; white-space: nowrap; color: var(--sand); }
 @supports ((background-clip: text) or (-webkit-background-clip: text)) {
   .price { background: var(--money); -webkit-background-clip: text; background-clip: text; color: transparent; }
+}
+/* Forced colours drop background images, which would leave the transparent text invisible. */
+@media (forced-colors: active) {
+  .price { background: none; color: CanvasText; }
 }
 .price.big { font-size: 2.25rem; }
 .price .unit { font-size: 0.7em; }
@@ -264,6 +270,7 @@ pre.well { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x
 .ledger { list-style: none; margin: 0; padding: 0; display: grid; }
 .ledger li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.9375rem; }
 .ledger li:last-child { border-bottom: 0; }
+.ledger li > span { min-width: 0; overflow-wrap: anywhere; }
 .ledger a { color: var(--label); }
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .stat-value { font-family: var(--display); font-size: 2rem; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); }

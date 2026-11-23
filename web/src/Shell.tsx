@@ -33,6 +33,7 @@ export function Shell({
   route,
   account,
   label,
+  token,
   busy,
   onConnect,
   children,
@@ -40,6 +41,8 @@ export function Shell({
   route: Route;
   account: string | null;
   label: string | null;
+  /** The board's reward token, from its config. */
+  token: string;
   busy: boolean;
   onConnect(): void;
   children: ReactNode;
@@ -52,7 +55,15 @@ export function Shell({
   );
   return (
     <div className="shell">
-      <a className="skip" href="#main">
+      {/* Routing lives in the hash, so the skip link moves focus instead of navigating to #main. */}
+      <a
+        className="skip"
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+      >
         Skip to content
       </a>
       <aside className="side">
@@ -67,7 +78,7 @@ export function Shell({
         <Brand className="phone-brand" />
         <div className="greet desk-only">
           <p className="hello">Hello</p>
-          <p>{account ? "Rewards in EUDemo. Fees paid by the board's sponsor." : "Connect Concordium Wallet for Web to post, claim or get paid."}</p>
+          <p>{account ? `Rewards are paid in ${token}.` : "Connect Concordium Wallet for Web to post, claim or get paid."}</p>
         </div>
         {account ? (
           <a className="userchip" href="#/me" title={account}>
@@ -86,7 +97,7 @@ export function Shell({
           </button>
         )}
       </header>
-      <main id="main" className="main">
+      <main id="main" className="main" tabIndex={-1}>
         {children}
       </main>
       <nav className="dock" aria-label="Primary">

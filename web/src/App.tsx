@@ -44,9 +44,9 @@ function Page({ hash }: { hash: string }) {
 
 export function App() {
   const hash = useHash();
-  const { identity, account, connect, busy, toast, setToast } = useSession();
+  const { config, identity, account, connect, busy, toast, setToast } = useSession();
   return (
-    <Shell route={routeOf(hash, account)} account={account} label={identity?.label ?? null} busy={busy} onConnect={connect}>
+    <Shell route={routeOf(hash, account)} account={account} label={identity?.label ?? null} token={config?.rewardToken ?? "EUDemo"} busy={busy} onConnect={connect}>
       <div className="stack page">
         {toast && (
           <Banner kind={toast.kind === "error" ? "err" : toast.kind} onDismiss={() => setToast(null)}>

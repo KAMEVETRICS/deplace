@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 const ACCOUNT = "4jKZns1aveRVjBmGrvTp9ovsptBMktCJgoZ3zC5XTRsVrqjyuF";
 const shell = (over: Partial<Parameters<typeof Shell>[0]> = {}) => (
-  <Shell route="board" account={null} label={null} busy={false} onConnect={() => {}} {...over}>
+  <Shell route="board" account={null} label={null} token="EUDemo" busy={false} onConnect={() => {}} {...over}>
     <p>page</p>
   </Shell>
 );
@@ -37,6 +37,20 @@ describe("Shell", () => {
     expect(screen.queryByRole("button", { name: /connect wallet/i })).toBeNull();
     expect(screen.getByText("Verified person")).toBeTruthy();
     expect(screen.getByText("4jKZns…rqjyuF")).toBeTruthy();
+  });
+
+  it("skips to the main content without changing the page's route", () => {
+    location.hash = "#/b/1";
+    render(shell());
+    fireEvent.click(screen.getByText("Skip to content"));
+    expect(location.hash).toBe("#/b/1");
+    expect(document.activeElement?.id).toBe("main");
+  });
+
+  it("names the reward token from the board's config and promises nothing about fees", () => {
+    render(shell({ account: ACCOUNT, label: "Verified person", token: "EURR" }));
+    expect(screen.getByText("Rewards are paid in EURR.")).toBeTruthy();
+    expect(screen.queryByText(/fees paid/i)).toBeNull();
   });
 
   it("disables Connect wallet while a wallet request is running", () => {

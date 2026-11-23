@@ -31,7 +31,7 @@ export function Profile({ account }: { account: string }) {
     <section className="stack page">
       <div className="stack tight">
         <span className="kicker">Public record</span>
-        <h1>{p.identity ? `Verified ${p.identity.kind}` : "Account"}</h1>
+        <h1>{p.identity ? `Verified ${p.identity.kind}` : "Identity not found"}</h1>
         <p className="meta break">
           {account}
           {p.identity && ` · ${p.identity.idpName}`} ·{" "}
