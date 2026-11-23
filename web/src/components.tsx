@@ -29,20 +29,29 @@ export function formatAmount(units: string, decimals: number): string {
 
 export const short = (s: string, n = 6) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
 
+/** An amount of the reward token, in the wallet's balance gradient. */
+export function Amount({ units, decimals, token, big }: { units: string; decimals: number; token: string; big?: boolean }) {
+  return (
+    <span className={big ? "price big" : "price"}>
+      {formatAmount(units, decimals)} <span className="unit">{token}</span>
+    </span>
+  );
+}
+
 export function FundingBadge({ funding }: { funding: Funding }) {
   return funding.type === "Escrowed" ? (
-    <span className="badge badge-escrow" title="The reward sits in the board's escrow account (custodial until Protocol-Level Locks reach testnet). Payout follows the contract state.">
+    <span className="badge funded" title="The reward sits in the board's escrow account (custodial until Protocol-Level Locks reach testnet). Payout follows the contract state.">
       Escrowed (custodial)
     </span>
   ) : (
-    <span className="badge badge-promise" title="The reward is the poster's promise, paid on delivery. Not paying leaves a public mark on the poster's record.">
+    <span className="badge promise" title="The reward is the poster's promise, paid on delivery. Not paying leaves a public mark on the poster's record.">
       Not funded
     </span>
   );
 }
 
 export function KindBadge({ kind }: { kind: "Exclusive" | "Contest" }) {
-  return <span className="badge badge-kind">{kind === "Exclusive" ? "Exclusive" : "Contest"}</span>;
+  return <span className="kicker">{kind === "Exclusive" ? "Exclusive" : "Contest"}</span>;
 }
 
 const STATUS_LABEL: Record<Status["type"], string> = {
@@ -61,17 +70,29 @@ const STATUS_LABEL: Record<Status["type"], string> = {
   Refunded: "Refunded",
 };
 
+/** Paid reads as done; marks that go on a public record read as danger; ended-without-work states are quiet. */
+const STATUS_TONE: Partial<Record<Status["type"], "ok" | "danger" | "quiet">> = {
+  Paid: "ok",
+  AcceptedUnpaid: "danger",
+  RejectedFinal: "danger",
+  NoAward: "danger",
+  Expired: "quiet",
+  Cancelled: "quiet",
+  Refunded: "quiet",
+};
+
 export function StatusPill({ status }: { status: Status }) {
-  return <span className={`pill pill-${status.type.toLowerCase()}`}>{STATUS_LABEL[status.type]}</span>;
+  const tone = STATUS_TONE[status.type];
+  return <span className={tone ? `badge ${tone}` : "badge"}>{STATUS_LABEL[status.type]}</span>;
 }
 
 /** Shown whenever the board could not sponsor a transaction and the sender pays the fee. */
 export function FeeNotice({ prepared }: { prepared: Prepared | null }) {
   if (!prepared || prepared.feeSponsored) return null;
   return (
-    <div role="alert" className="notice notice-warn">
+    <Banner kind="fund" role="alert">
       {prepared.notice ?? "Network fee applies: your account pays a small CCD fee for this transaction."}
-    </div>
+    </Banner>
   );
 }
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { Banner, FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
+import { Amount, Banner, FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
 
 afterEach(cleanup);
 
@@ -61,5 +61,26 @@ describe("formatting", () => {
   it("labels statuses in words", () => {
     render(<StatusPill status={{ type: "AcceptedUnpaid", worker: "w", workHash: "x" }} />);
     expect(screen.getByText("Accepted, unpaid")).toBeTruthy();
+  });
+
+  it("marks Paid as ok and a final rejection or unpaid acceptance as danger", () => {
+    render(
+      <>
+        <StatusPill status={{ type: "Paid" }} />
+        <StatusPill status={{ type: "RejectedFinal" }} />
+        <StatusPill status={{ type: "AcceptedUnpaid", worker: "w", workHash: "x" }} />
+        <StatusPill status={{ type: "Open" }} />
+      </>,
+    );
+    expect(screen.getByText("Paid").classList.contains("ok")).toBe(true);
+    expect(screen.getByText("Rejected (final)").classList.contains("danger")).toBe(true);
+    expect(screen.getByText("Accepted, unpaid").classList.contains("danger")).toBe(true);
+    expect(screen.getByText("Open").className).toBe("badge");
+  });
+
+  it("shows an amount in the token's units with the token name", () => {
+    const { container } = render(<Amount units="2500000" decimals={6} token="EUDemo" />);
+    expect(container.textContent).toBe("2.5 EUDemo");
+    expect(container.querySelector(".price")).toBeTruthy();
   });
 });
