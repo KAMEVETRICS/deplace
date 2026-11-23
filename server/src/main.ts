@@ -13,7 +13,7 @@ import { createApp } from "./api/app.js";
 import { transferNoter } from "./board/payments.js";
 import { BoardError, BoardService } from "./board/service.js";
 import { BountyContract, eventsFromSummary } from "./chain/contract.js";
-import { grpcClient, isNotFound } from "./chain/grpc.js";
+import { grpcClient, isNotFound, retrying } from "./chain/grpc.js";
 import { Operator } from "./chain/operator.js";
 import { PltClient } from "./chain/plt.js";
 import { registryAgentWallet } from "./chain/registry.js";
@@ -38,7 +38,8 @@ const contractRef = cfg.contract;
 const client = grpcClient(cfg);
 const contract = new BountyContract(client, contractRef);
 const plt = new PltClient(client, cfg.rewardTokenId);
-const decimals = await plt.decimals();
+// The node can be briefly unreachable (a failed DNS lookup crashed startup once), so startup reads retry.
+const decimals = await retrying("reading the reward token", () => plt.decimals());
 const sponsorWallet = loadWallet(cfg.keyFiles.sponsor);
 const sponsorKey = walletPrivateKey(cfg.keyFiles.sponsor);
 const operatorWallet = loadWallet(cfg.keyFiles.operator);
@@ -48,7 +49,7 @@ const operator = new Operator(client, operatorWallet, contractRef, { tokenId: cf
 );
 const attestor = new Attestor(loadOrCreateAttestorSeed(cfg.keyFiles.attestor));
 
-const onChain = await contract.config();
+const onChain = await retrying("reading the contract config", () => contract.config());
 if (onChain.attestorHex !== attestor.publicKeyHex) {
   throw new Error(`attestor key mismatch: contract expects ${onChain.attestorHex}, ${cfg.keyFiles.attestor} holds ${attestor.publicKeyHex}`);
 }
@@ -170,7 +171,9 @@ const noter = transferNoter({
 
 let gateway: X402Gateway | null = null;
 try {
-  gateway = await createX402Gateway({ sponsorAddress: sponsorKey.address, sponsorKeyHex: sponsorKey.key, grpcHost: cfg.grpcHost, grpcPort: cfg.grpcPort, tokenId: cfg.rewardTokenId });
+  gateway = await retrying("starting the x402 gateway", () =>
+    createX402Gateway({ sponsorAddress: sponsorKey.address, sponsorKeyHex: sponsorKey.key, grpcHost: cfg.grpcHost, grpcPort: cfg.grpcPort, tokenId: cfg.rewardTokenId }),
+  );
 } catch (e) {
   console.error("[startup] x402 gateway unavailable; pay-on-delivery and x402 funding are off:", e);
 }
