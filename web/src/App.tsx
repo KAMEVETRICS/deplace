@@ -41,7 +41,14 @@ export function App() {
   // Judges land on the landing page; the board and everything else live inside the shell.
   if (hash === "#/" || hash === "#") return <Landing />;
   return (
-    <Shell route={routeOf(hash, account)} account={account} label={identity?.label ?? null} token={config?.rewardToken ?? "EUDemo"} busy={busy} onConnect={connect}>
+    <Shell
+      route={routeOf(hash, account)}
+      account={account}
+      label={identity?.username ? `@${identity.username}` : (identity?.label ?? null)}
+      token={config?.rewardToken ?? "EUDemo"}
+      busy={busy}
+      onConnect={connect}
+    >
       <div className="stack page">
         {toast && (
           <Banner kind={toast.kind === "error" ? "err" : toast.kind} onDismiss={() => setToast(null)}>

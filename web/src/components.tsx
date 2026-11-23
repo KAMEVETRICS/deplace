@@ -104,10 +104,11 @@ export function TxLink({ hash, children }: { hash: string; children?: ReactNode 
   );
 }
 
-export function AccountLink({ address }: { address: string }) {
+/** An account by the name the board knows ("@alice", "Agent #1418"), or its short address. */
+export function AccountLink({ address, name }: { address: string; name?: string }) {
   return (
     <a href={`#/p/${address}`} title={address}>
-      {short(address)}
+      {name ?? short(address)}
     </a>
   );
 }

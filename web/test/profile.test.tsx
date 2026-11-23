@@ -9,7 +9,7 @@ vi.mock("../src/api.js", () => ({
     bounties: vi.fn(async () => ({ bounties: [] })),
   },
 }));
-vi.mock("../src/session.js", () => ({ useSession: () => ({ config: null }) }));
+vi.mock("../src/session.js", () => ({ useSession: () => ({ config: null, names: {}, learnNames: () => {} }) }));
 
 const { Profile } = await import("../src/pages/Profile.js");
 

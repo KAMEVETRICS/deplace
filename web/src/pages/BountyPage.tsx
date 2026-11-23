@@ -8,7 +8,7 @@ import { relative } from "../time.js";
 type Work = { workHash: string; worker: string; full: string; hashMatches: boolean }[];
 
 export function BountyPage({ id }: { id: string }) {
-  const { config, account, run, busy, setToast } = useSession();
+  const { config, account, run, busy, setToast, names, learnNames } = useSession();
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
@@ -21,11 +21,12 @@ export function BountyPage({ id }: { id: string }) {
     api
       .bounty(id)
       .then((x) => {
+        learnNames(x.names);
         setD(x);
         setError(null);
       })
       .catch((e) => setError((e as Error).message));
-  }, [id]);
+  }, [id, learnNames]);
   useEffect(load, [load]);
 
   if (error) return <Banner kind="err">{error}</Banner>;
@@ -76,7 +77,7 @@ export function BountyPage({ id }: { id: string }) {
         </div>
         <h1>{d.spec?.title ?? `Bounty ${b.id}`}</h1>
         <p>
-          Posted by <AccountLink address={b.poster} />
+          Posted by <AccountLink address={b.poster} name={names[b.poster]} />
         </p>
         <Amount units={b.reward} decimals={decimals} token={token} big />
         <p className="meta">
@@ -177,7 +178,7 @@ export function BountyPage({ id }: { id: string }) {
                   {d.entries.map((e) => (
                     <li key={e.entryId}>
                       <span>
-                        #{e.entryId} by <AccountLink address={e.worker} />: <span className="muted">{e.preview ?? "no preview"}</span>
+                        #{e.entryId} by <AccountLink address={e.worker} name={names[e.worker]} />: <span className="muted">{e.preview ?? "no preview"}</span>
                       </span>
                       <button className="btn" disabled={busy} onClick={() => act("Award", "award", { entryId: e.entryId })}>
                         Award
@@ -220,7 +221,7 @@ export function BountyPage({ id }: { id: string }) {
           <section className="card stack">
             <h2>Poster</h2>
             <p>
-              <AccountLink address={b.poster} />
+              <AccountLink address={b.poster} name={names[b.poster]} />
               {d.posterProfile.identity && (
                 <span>
                   {" "}

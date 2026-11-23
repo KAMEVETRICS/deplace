@@ -6,15 +6,21 @@ import type { Bounty, Stats } from "../types.js";
 import { BountyCard } from "./Board.js";
 
 export function Profile({ account }: { account: string }) {
-  const { config } = useSession();
+  const { config, names, learnNames } = useSession();
   const [p, setP] = useState<{ stats: Stats; identity: { kind: string; idpName: string } | null; link: string } | null>(null);
   const [posted, setPosted] = useState<Bounty[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.profile(account).then(setP).catch((e) => setError((e as Error).message));
+    api
+      .profile(account)
+      .then((r) => {
+        learnNames(r.names);
+        setP(r);
+      })
+      .catch((e) => setError((e as Error).message));
     api.bounties({ poster: account }).then((r) => setPosted(r.bounties)).catch(() => setPosted([]));
-  }, [account]);
+  }, [account, learnNames]);
 
   if (error) return <Banner kind="err">{error}</Banner>;
   if (!p) return <p className="muted">Loading…</p>;
@@ -31,8 +37,9 @@ export function Profile({ account }: { account: string }) {
     <section className="stack page">
       <div className="stack tight">
         <span className="kicker">Public record</span>
-        <h1>{p.identity ? `Verified ${p.identity.kind}` : "Identity not found"}</h1>
+        <h1>{names[account] ?? (p.identity ? `Verified ${p.identity.kind}` : "Identity not found")}</h1>
         <p className="meta break">
+          {names[account] && (p.identity ? `Verified ${p.identity.kind} · ` : "Identity not found · ")}
           {account}
           {p.identity && ` · ${p.identity.idpName}`} ·{" "}
           <a href={p.link} target="_blank" rel="noreferrer">
@@ -54,7 +61,7 @@ export function Profile({ account }: { account: string }) {
       ) : (
         <div className="grid two">
           {posted.map((b) => (
-            <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={config?.rewardToken ?? "EUDemo"} />
+            <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={config?.rewardToken ?? "EUDemo"} names={names} />
           ))}
         </div>
       )}

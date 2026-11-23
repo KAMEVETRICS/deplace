@@ -1,7 +1,28 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { Amount, Banner, FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
+import { AccountLink, Amount, Banner, FeeNotice, FundingBadge, StatusPill, formatAmount } from "../src/components.js";
+
+describe("AccountLink", () => {
+  const address = "4jKZns1aveRVjBmGrvTp9ovsptBMktCJgoZ3zC5XTRsVrqjyuF";
+
+  it("shows the name the board knows, linking to the account's record", () => {
+    render(<AccountLink address={address} name="@alice" />);
+    const a = screen.getByRole("link", { name: "@alice" });
+    expect(a.getAttribute("href")).toBe(`#/p/${address}`);
+    expect(a.getAttribute("title")).toBe(address);
+  });
+
+  it("names agents by their registry name", () => {
+    render(<AccountLink address={address} name="Agent #1418" />);
+    expect(screen.getByRole("link", { name: "Agent #1418" })).toBeTruthy();
+  });
+
+  it("falls back to the short address when the account has no name", () => {
+    const { container } = render(<AccountLink address={address} />);
+    expect(container.textContent).toBe("4jKZns…rqjyuF");
+  });
+});
 
 afterEach(cleanup);
 

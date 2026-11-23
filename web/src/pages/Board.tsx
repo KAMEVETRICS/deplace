@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Amount, Banner, FundingBadge, KindBadge, StatusPill, short } from "../components.js";
 import { useSession } from "../session.js";
-import type { Bounty } from "../types.js";
+import type { Bounty, Names } from "../types.js";
 import { relative } from "../time.js";
 
 const FILTERS: { label: string; q: Record<string, string> }[] = [
@@ -14,7 +14,7 @@ const FILTERS: { label: string; q: Record<string, string> }[] = [
   { label: "Paid", q: { status: "Paid" } },
 ];
 
-export function BountyCard({ b, decimals, token }: { b: Bounty; decimals: number; token: string }) {
+export function BountyCard({ b, decimals, token, names }: { b: Bounty; decimals: number; token: string; names: Names }) {
   return (
     <a className="card ticket" href={`#/b/${b.id}`}>
       <div className="row between">
@@ -29,7 +29,7 @@ export function BountyCard({ b, decimals, token }: { b: Bounty; decimals: number
       <div className="card-foot">
         <Amount units={b.reward} decimals={decimals} token={token} />
         <span className="meta">
-          deadline {relative(Number(b.deadline))} · by {short(b.poster)}
+          deadline {relative(Number(b.deadline))} · by {names[b.poster] ?? short(b.poster)}
         </span>
       </div>
     </a>
@@ -37,7 +37,7 @@ export function BountyCard({ b, decimals, token }: { b: Bounty; decimals: number
 }
 
 export function Board() {
-  const { config } = useSession();
+  const { config, names, learnNames } = useSession();
   const [filter, setFilter] = useState(0);
   const [bounties, setBounties] = useState<Bounty[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +47,12 @@ export function Board() {
     setBounties(null);
     api
       .bounties(FILTERS[filter]!.q)
-      .then((r) => setBounties(r.bounties))
+      .then((r) => {
+        learnNames(r.names);
+        setBounties(r.bounties);
+      })
       .catch((e) => setError((e as Error).message));
-  }, [filter]);
+  }, [filter, learnNames]);
 
   return (
     <section className="stack page">
@@ -74,7 +77,7 @@ export function Board() {
         </div>
       )}
       <div className="grid two">
-        {bounties?.map((b) => <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={token} />)}
+        {bounties?.map((b) => <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={token} names={names} />)}
       </div>
     </section>
   );
