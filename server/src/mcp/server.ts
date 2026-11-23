@@ -4,6 +4,7 @@ import type { AccountTransactionSignature } from "@concordium/web-sdk";
 import { Router } from "express";
 import { z } from "zod";
 import { BoardError, type BoardService } from "../board/service.js";
+import { isTransient } from "../chain/grpc.js";
 import { checkPayoutEligible } from "../identity/eligibility.js";
 import { SponsorRefused } from "../sponsor/sponsor.js";
 
@@ -29,14 +30,17 @@ export const TOOL_NAMES = [
 
 const INSTRUCTIONS = `Deplace, a bounty board on Concordium testnet. People, companies and badge-holding agents post bounties; verified workers claim or enter them.
 Flow for a worker agent: request_challenge with your badge -> sign the message with your Agent Registry agentWallet account key -> login -> list_bounties -> prepare_claim (or prepare_submit for a contest) -> sign the returned txJson as sender -> submit_signed -> do the work -> prepare_submit -> sign -> submit_signed -> get_status until Paid.
-Every prepare_* tool returns a transaction the board's sponsor already co-signed: you sign it and pay no CCD. Rewards are paid in the EUDemo PLT; your payout account must be on its allow list (check_payout_eligibility).`;
+Every prepare_* tool returns a transaction the board's sponsor already co-signed: you sign it and pay no CCD. Rewards are paid in the EUDemo PLT; your payout account must be on its allow list (check_payout_eligibility).
+Tool errors are JSON. One with "retryable": true is temporary (the badge service or the chain could not be reached): wait a little and call again.`;
 
 const replacer = (_k: string, v: unknown) => (typeof v === "bigint" ? v.toString() : v);
 const text = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v, replacer, 2) }] });
 
+/** Tool errors are JSON; `retryable: true` marks a temporary failure the same call may get past later. */
 function failure(e: unknown) {
-  if (e instanceof BoardError) return { isError: true, ...text({ error: e.message, ...e.extra }) };
+  if (e instanceof BoardError) return { isError: true, ...text({ error: e.message, ...e.extra, ...(e.status === 503 ? { retryable: true } : {}) }) };
   if (e instanceof SponsorRefused) return { isError: true, ...text({ error: e.message, retryAfter: e.retryAfter }) };
+  if (isTransient(e)) return { isError: true, ...text({ error: `the board lost its network connection (${(e as Error).message}), retry later`, retryable: true }) };
   throw e;
 }
 

@@ -42,6 +42,38 @@ describe("board MCP server", () => {
     const r: any = await client.callTool({ name: "prepare_claim", arguments: { session: "nope", bounty_id: "0" } });
     expect(r.isError).toBe(true);
     expect(r.content[0].text).toMatch(/log in/);
+    expect(json(r)).not.toHaveProperty("retryable");
+  });
+
+  it("marks a login the badge service could not check as worth retrying", async () => {
+    const { client, deps } = await connect();
+    deps.fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const ch = json(await client.callTool({ name: "request_challenge", arguments: { badge: "JyP9Badge" } }));
+    const r: any = await client.callTool({ name: "login", arguments: { badge: "JyP9Badge", nonce: ch.nonce, signature: { "0": { "0": "00" } } } });
+    expect(r.isError).toBe(true);
+    expect(json(r)).toMatchObject({ error: expect.stringMatching(/unavailable/), retryable: true });
+  });
+
+  it("marks a chain read that failed on the network as worth retrying", async () => {
+    const { client, deps } = await connect();
+    deps.isOnAllowList = async () => {
+      throw new Error("read ECONNRESET");
+    };
+    const r: any = await client.callTool({ name: "check_payout_eligibility", arguments: { account: worker.address } });
+    expect(r.isError).toBe(true);
+    expect(json(r)).toMatchObject({ error: expect.stringContaining("ECONNRESET"), retryable: true });
+  });
+
+  it("does not mark a crash inside the board as worth retrying", async () => {
+    const { client, deps } = await connect();
+    deps.isOnAllowList = async () => {
+      throw new TypeError("Cannot read properties of undefined (reading 'state')");
+    };
+    const r: any = await client.callTool({ name: "check_payout_eligibility", arguments: { account: worker.address } });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).not.toMatch(/retryable/);
   });
 
   it("logs in with a signed challenge and prepares a sponsored claim", async () => {
