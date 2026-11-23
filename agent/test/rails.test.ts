@@ -230,6 +230,53 @@ describe("spending budget", () => {
     expect(() => b.commit("bounty:2", 3_000_001n)).toThrow(/daily/);
     expect(() => b.reserve("bounty:1", 1n)).toThrow(/already paid/);
   });
+
+  it("moves a post's commitment to its bounty, still counted once in the day", () => {
+    const b = new SpendBudget(null, { maxPerBounty: 5n, dailyCap: 5n });
+    b.commit("post-tx:aa", 2n);
+    b.rename("post-tx:aa", "bounty:9");
+    expect(b.spentLast24h()).toBe(2n);
+    expect(() => b.reserve("bounty:9", 2n)).not.toThrow();
+    expect(() => b.rename("post-tx:aa", "bounty:10")).toThrow(RailViolation);
+    b.commit("post-tx:bb", 1n);
+    expect(() => b.rename("post-tx:bb", "bounty:9")).toThrow(RailViolation);
+  });
+
+  it("drops the commitment of a post that never landed, never one with payments against it", () => {
+    const b = new SpendBudget(null, { maxPerBounty: 5n, dailyCap: 5n });
+    b.commit("post-tx:aa", 2n);
+    b.remove("post-tx:aa");
+    expect(b.spentLast24h()).toBe(0n);
+    b.commit("bounty:9", 2n);
+    b.reserve("bounty:9", 1n);
+    expect(() => b.remove("bounty:9")).toThrow(RailViolation);
+    expect(() => b.remove("bounty:404")).toThrow(RailViolation);
+  });
+
+  it("gives back a payment that never landed, never more than was paid", () => {
+    const b = new SpendBudget(null, { maxPerBounty: 5n, dailyCap: 5n });
+    b.commit("bounty:9", 2n);
+    b.reserve("bounty:9", 2n);
+    b.unbook("bounty:9", 2n);
+    expect(() => b.reserve("bounty:9", 2n)).not.toThrow();
+    expect(() => b.unbook("bounty:9", 5n)).toThrow(RailViolation);
+    expect(() => b.unbook("bounty:404", 1n)).toThrow(RailViolation);
+  });
+
+  it("keeps moves, drops and give-backs across restarts", () => {
+    const f = file();
+    const a = new SpendBudget(f, limits);
+    a.commit("post-tx:aa", 2_000_000n);
+    a.rename("post-tx:aa", "bounty:9");
+    a.commit("post-tx:bb", 1_000_000n);
+    a.remove("post-tx:bb");
+    a.reserve("bounty:9", 2_000_000n);
+    a.unbook("bounty:9", 2_000_000n);
+    const b = new SpendBudget(f, limits);
+    expect(b.spentLast24h()).toBe(2_000_000n);
+    expect(() => b.reserve("post-tx:aa", 1n)).toThrow(/commit/);
+    expect(() => b.reserve("bounty:9", 2_000_000n)).not.toThrow();
+  });
 });
 
 describe("guarded x402 client", () => {

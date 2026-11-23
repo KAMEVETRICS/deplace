@@ -79,6 +79,41 @@ export class SpendBudget {
     };
   }
 
+  /**
+   * Moves a commitment, with what was paid against it, to another ref: a post's reward is committed
+   * as `post-tx:<hash>` before the post is sent, and moved to `bounty:<id>` once the post is final.
+   */
+  rename(from: string, to: string): void {
+    const c = this.entries.find((e) => e.ref === from);
+    if (!c) throw new RailViolation(`no commitment ${from} to move to ${to}`);
+    if (this.entries.some((e) => e.ref === to)) throw new RailViolation(`${to} is already committed; not moving ${from} onto it`);
+    c.ref = to;
+    this.save();
+  }
+
+  /** Drops a commitment nothing was paid against: the reward of a post that never landed. */
+  remove(ref: string): void {
+    const i = this.entries.findIndex((e) => e.ref === ref);
+    const c = this.entries[i];
+    if (!c) throw new RailViolation(`no commitment ${ref} to drop`);
+    if (BigInt(c.paid ?? "0") > 0n) throw new RailViolation(`${ref} has payments booked against it, so it stays committed`);
+    this.entries.splice(i, 1);
+    this.save();
+  }
+
+  /**
+   * Gives back a payment that provably never landed: its transaction expired before its nonce
+   * was used. Never gives back more than was booked.
+   */
+  unbook(ref: string, amount: bigint): void {
+    const c = this.entries.find((e) => e.ref === ref);
+    if (!c) throw new RailViolation(`no commitment ${ref} to give a payment back to`);
+    const paid = BigInt(c.paid ?? "0");
+    if (amount > paid) throw new RailViolation(`cannot give back ${amount} for ${ref}: only ${paid} is booked`);
+    c.paid = (paid - amount).toString();
+    this.save();
+  }
+
   private save() {
     if (!this.file) return;
     mkdirSync(dirname(this.file), { recursive: true });
