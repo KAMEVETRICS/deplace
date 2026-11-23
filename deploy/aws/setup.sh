@@ -91,8 +91,10 @@ install -m 644 "$HERE/deplace.service" /etc/systemd/system/deplace.service
 systemctl daemon-reload
 systemctl enable deplace
 
+# Access log (client IP, path, status, user agent) goes to the journal: journalctl -u caddy
 cat > /etc/caddy/Caddyfile <<EOF
 $HOST {
+	log
 	reverse_proxy 127.0.0.1:8787
 }
 EOF
