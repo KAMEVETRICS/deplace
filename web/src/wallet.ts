@@ -22,6 +22,32 @@ export async function connectWallet(): Promise<{ provider: WalletApi; account: s
 }
 
 /**
+ * What Concordium Wallet for Web answers while it is locked, and also when the site is not
+ * connected to the account asked for. A locked wallet says this instead of asking to be unlocked.
+ */
+const NOT_WHITELISTED = "Site is not whitelisted";
+
+/** Makes a wallet request, turning the wallet's misleading "not whitelisted" refusal into advice. */
+async function askWallet<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (e) {
+    if (e instanceof Error && e.message.includes(NOT_WHITELISTED)) {
+      throw new Error(
+        "Concordium Wallet for Web is locked, or this site is not connected to the account you signed in with. Unlock the wallet and try again; if that does not help, reload the page and connect again.",
+        { cause: e },
+      );
+    }
+    throw e;
+  }
+}
+
+/** Has the wallet sign the board's login challenge with the account. */
+export function signChallenge(provider: WalletApi, account: string, message: string) {
+  return askWallet(() => provider.signMessage(account, message));
+}
+
+/**
  * Signs and submits a transaction the board prepared and its sponsor co-signed. The wallet
  * shows the contract call (decoded with the module schema) and submits it; the sender pays nothing.
  */
@@ -33,7 +59,7 @@ export async function sendPrepared(provider: WalletApi, account: string, prepare
   const isContractCall = (tx.payload as { type?: AccountTransactionType }).type === AccountTransactionType.Update;
   if (isContractCall) {
     if (!moduleSchemaBase64) throw new Error("The contract schema is not available from the board, so the wallet cannot show this call.");
-    return provider.sendSponsoredTransaction(account, tx as never, { type: "ModuleSchema", value: Buffer.from(moduleSchemaBase64, "base64") });
+    return askWallet(() => provider.sendSponsoredTransaction(account, tx as never, { type: "ModuleSchema", value: Buffer.from(moduleSchemaBase64, "base64") }));
   }
-  return provider.sendSponsoredTransaction(account, tx as never);
+  return askWallet(() => provider.sendSponsoredTransaction(account, tx as never));
 }

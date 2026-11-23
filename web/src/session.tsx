@@ -3,7 +3,7 @@ import type { WalletApi } from "@concordium/browser-wallet-api-helpers";
 import { api, ApiError, setToken, type PreparedResponse } from "./api.js";
 import type { BoardConfig, Identity, Names } from "./types.js";
 import { untilLoaded } from "./retry.js";
-import { connectWallet, sendPrepared } from "./wallet.js";
+import { connectWallet, sendPrepared, signChallenge } from "./wallet.js";
 
 export interface Toast {
   kind: "ok" | "error" | "info";
@@ -79,7 +79,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const w = await connectWallet();
       const ch = await api.challenge(w.account);
-      const signature = await w.provider.signMessage(w.account, ch.message);
+      const signature = await signChallenge(w.provider, w.account, ch.message);
       const r = await api.login(w.account, ch.nonce, signature);
       setToken(r.token);
       setProvider(w.provider);
