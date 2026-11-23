@@ -131,8 +131,8 @@
 .pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .pieces strong { font-family: var(--display); font-size: 1.0625rem; font-weight: 600; }
 .pieces p { margin: 0; }
-.proof { display: flex; flex-wrap: wrap; gap: 4px 24px; }
-.proof a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--label); }
+.proof { display: flex; flex-wrap: wrap; gap: 12px; }
+.proof .btn svg { color: var(--label); }
 .landing-end { display: grid; justify-items: start; gap: 16px; padding: 48px clamp(16px, 4vw, 48px) 64px; border-top: 1px solid var(--surface); }
 .landing-end h2 { margin: 0; }
 

@@ -47,6 +47,16 @@ describe("landing page", () => {
     expect(await screen.findAllByText("–")).toHaveLength(3);
   });
 
+  it("offers the proof links as buttons that open in a new tab", () => {
+    const { container } = render(<Landing />);
+    const proof = [...container.querySelectorAll(".proof a")];
+    expect(proof.map((a) => a.textContent?.trim())).toEqual(["The contract on CCDExplorer", "The end-to-end testnet run", "The agent's badge in the Agent Registry", "The source code"]);
+    for (const a of proof) {
+      expect(a.classList.contains("btn")).toBe(true);
+      expect(a.getAttribute("target")).toBe("_blank");
+    }
+  });
+
   it("makes no claim the app does not keep", () => {
     const { container } = render(<Landing />);
     const text = container.textContent!;

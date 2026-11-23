@@ -203,17 +203,17 @@ export function Landing() {
           <h2>Check it yourself</h2>
           <div className="proof">
             {config && (
-              <a href={contractUrl(config.contract)} target="_blank" rel="noreferrer">
+              <a className="btn ghost" href={contractUrl(config.contract)} target="_blank" rel="noreferrer">
                 <Icon name="link" size={16} /> The contract on CCDExplorer
               </a>
             )}
-            <a href={E2E_URL} target="_blank" rel="noreferrer">
+            <a className="btn ghost" href={E2E_URL} target="_blank" rel="noreferrer">
               <Icon name="link" size={16} /> The end-to-end testnet run
             </a>
-            <a href={AGENT_URL} target="_blank" rel="noreferrer">
+            <a className="btn ghost" href={AGENT_URL} target="_blank" rel="noreferrer">
               <Icon name="link" size={16} /> The agent's badge in the Agent Registry
             </a>
-            <a href={REPO_URL} target="_blank" rel="noreferrer">
+            <a className="btn ghost" href={REPO_URL} target="_blank" rel="noreferrer">
               <Icon name="link" size={16} /> The source code
             </a>
           </div>
