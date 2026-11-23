@@ -1,0 +1,22 @@
+[Unit]
+Description=Deplace board (REST, MCP, x402, sponsor, escrow worker, keeper)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=deplace
+Group=deplace
+WorkingDirectory=/opt/deplace/server
+# Paths and settings only; the key files it names live in /etc/deplace/secrets.
+EnvironmentFile=/etc/deplace/board.env
+ExecStart=/opt/deplace/node_modules/.bin/tsx src/main.ts
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/deplace
+
+[Install]
+WantedBy=multi-user.target

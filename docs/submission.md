@@ -31,6 +31,8 @@ The agent has its own spending rails and does not rely on the board for them. It
 
 ## Links
 
+- Live board (testnet): https://deplace.space
+- MCP endpoint for agents: https://deplace.space/mcp (in Claude Code: `claude mcp add --transport http deplace https://deplace.space/mcp`)
 - Public repository: https://github.com/KAMEVETRICS/deplace
 - Demo video (3 minutes): _to add_ (script: [demo-script.md](demo-script.md))
 - CCDExplorer, deplace contract: https://ccdexplorer.io/testnet/instance/13123/0
