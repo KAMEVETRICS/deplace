@@ -1,0 +1,152 @@
+/* The landing page: the only place in Deplace with motion. Tokens come from styles.css. */
+.landing { min-height: 100dvh; display: flex; flex-direction: column; }
+.landing-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px clamp(16px, 4vw, 48px);
+  background: color-mix(in srgb, var(--page) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+.landing-top nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+.hero { display: grid; gap: 28px; padding: 8px clamp(16px, 4vw, 48px) 48px; }
+.stage {
+  position: relative;
+  height: clamp(380px, 46vw, 560px);
+  overflow: hidden;
+  border: 1px solid var(--surface);
+  border-radius: var(--radius);
+  background: radial-gradient(120% 90% at 78% 18%, #1d2023 0%, var(--side-bg) 62%);
+}
+.giant {
+  position: absolute;
+  left: -2%;
+  right: -2%;
+  top: 4%;
+  text-align: center;
+  white-space: nowrap;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(96px, 20vw, 300px);
+  line-height: 0.9;
+  letter-spacing: -0.045em;
+  color: var(--text);
+  animation: cut-in 240ms steps(3, end);
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .giant { background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.07) 96%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+}
+@keyframes cut-in {
+  from { transform: translateY(5%) skewX(-5deg); opacity: 0.35; }
+  to { transform: none; opacity: 1; }
+}
+.sketch {
+  position: absolute;
+  left: 57%;
+  top: 6%;
+  width: clamp(88px, 13vw, 168px);
+  transform: rotate(-8deg);
+  stroke: #e9e5da;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0.9;
+  animation: draw 700ms ease-out forwards;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+.term {
+  position: absolute;
+  left: 4%;
+  bottom: 7%;
+  width: min(470px, 52%);
+  overflow: hidden;
+  background: rgba(13, 14, 15, 0.94);
+  border: 1px solid var(--well);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  font: 0.8125rem/1.6 var(--mono);
+}
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--surface); color: var(--muted); font: 0.75rem/1.2 var(--sans); }
+.term-bar i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
+.term-bar i:nth-child(2) { background: #febc2e; }
+.term-bar i:nth-child(3) { background: #28c840; }
+.term-bar span { margin: 0 auto; }
+.term-body { list-style: none; margin: 0; padding: 12px 14px 14px; display: grid; gap: 4px; min-height: 9.6em; color: var(--text); overflow-wrap: anywhere; }
+.term-body li.now { color: #6b9bff; }
+.caret { display: inline-block; width: 0.55em; height: 1em; margin-left: 1px; vertical-align: -0.15em; background: currentColor; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.demo-card {
+  position: absolute;
+  right: 5%;
+  top: 30%;
+  width: min(340px, 40%);
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  outline: 2px solid transparent;
+  outline-offset: 6px;
+  transition: outline-color 200ms ease-out;
+}
+.demo-card h3 { margin: 0; }
+.demo-card.selected { outline-color: var(--stamp); }
+.demo-card .handle { position: absolute; width: 9px; height: 9px; background: var(--text); border: 2px solid var(--stamp); opacity: 0; transition: opacity 200ms ease-out; }
+.demo-card.selected .handle { opacity: 1; }
+.handle.tl { left: -12px; top: -12px; }
+.handle.tr { right: -12px; top: -12px; }
+.handle.bl { left: -12px; bottom: -12px; }
+.handle.br { right: -12px; bottom: -12px; }
+
+.agent-cursor {
+  position: absolute;
+  left: 46%;
+  top: 72%;
+  display: flex;
+  align-items: flex-start;
+  pointer-events: none;
+  transition: left 900ms cubic-bezier(0.2, 0.8, 0.2, 1), top 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.agent-cursor.on-card { left: 60%; top: 54%; }
+.agent-cursor svg { color: var(--stamp); filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)); }
+.agent-cursor span { margin: 18px 0 0 -2px; padding: 3px 10px; border-radius: 6px; background: var(--stamp); color: var(--text); font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
+
+.hero-copy { display: grid; gap: 12px; justify-items: start; max-width: 46rem; }
+.hero-copy h1 { font-size: clamp(2rem, 4.5vw, 3.25rem); line-height: 1.05; letter-spacing: -0.02em; margin: 0; }
+.hero-copy .lede { margin: 0; }
+
+.landing-section { display: grid; gap: 20px; padding: 40px clamp(16px, 4vw, 48px); border-top: 1px solid var(--surface); }
+.landing-section h2 { font-size: 1.5rem; margin: 0; }
+.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.pieces { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.pieces strong { font-family: var(--display); font-size: 1.0625rem; font-weight: 600; }
+.pieces p { margin: 0; }
+.proof { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.proof a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--label); }
+.landing-end { display: grid; justify-items: start; gap: 16px; padding: 48px clamp(16px, 4vw, 48px) 64px; border-top: 1px solid var(--surface); }
+.landing-end h2 { margin: 0; }
+
+@media (max-width: 759px) {
+  .stage { height: auto; display: grid; gap: 16px; padding: 16px; }
+  .giant { position: static; text-align: left; font-size: clamp(60px, 21vw, 120px); }
+  .sketch { left: auto; right: 6%; top: 4%; width: 72px; }
+  .term, .demo-card { position: static; width: 100%; }
+  .demo-card.selected { outline-offset: 4px; }
+  .agent-cursor { display: none; }
+  .landing-top .btn.ghost { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .giant, .sketch, .caret { animation: none; }
+  .sketch { stroke-dashoffset: 0; }
+  .agent-cursor, .demo-card, .demo-card .handle { transition: none; }
+}

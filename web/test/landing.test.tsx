@@ -1,7 +1,52 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { FINAL, LOOP_MS, STEPS, WORDS, boardStats, frameAt } from "../src/landing/timeline.js";
 import type { Bounty } from "../src/types.js";
+
+const { bountiesMock } = vi.hoisted(() => ({ bountiesMock: vi.fn() }));
+vi.mock("../src/api.js", () => ({ api: { bounties: bountiesMock } }));
+vi.mock("../src/session.js", () => ({ useSession: () => ({ config: { rewardToken: "EUDemo", decimals: 6, contract: { index: "13123", subindex: "0" } } }) }));
+const { Landing } = await import("../src/pages/Landing.js");
+
+function reducedMotion(on: boolean) {
+  window.matchMedia = ((q: string) => ({ matches: on && q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+}
+
+describe("landing page", () => {
+  beforeEach(() => {
+    reducedMotion(true);
+    bountiesMock.mockResolvedValue({ bounties: [] });
+  });
+  afterEach(cleanup);
+
+  it("sends every Open the board button to the board", () => {
+    render(<Landing />);
+    const links = screen.getAllByRole("link", { name: "Open the board" });
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    for (const a of links) expect(a.getAttribute("href")).toBe("#/board");
+  });
+
+  it("tells screen readers what the animation shows, and hides the moving text from them", () => {
+    const { container } = render(<Landing />);
+    expect(screen.getByText(/finds a bounty, claims it, submits its work and is paid/)).toBeTruthy();
+    expect(container.querySelector(".stage")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("shows the finished state when the visitor prefers reduced motion", () => {
+    const { container } = render(<Landing />);
+    const stage = container.querySelector(".stage")!;
+    expect(stage.querySelectorAll(".term-body li")).toHaveLength(STEPS.length);
+    expect(stage.textContent).toContain(STEPS[STEPS.length - 1]!.line);
+    expect(stage.querySelector(".demo-card .badge")?.textContent).toBe("Paid");
+  });
+
+  it("still renders when the board cannot be reached", async () => {
+    bountiesMock.mockRejectedValue(new Error("down"));
+    render(<Landing />);
+    expect(await screen.findAllByText("–")).toHaveLength(3);
+  });
+});
 
 describe("landing timeline", () => {
   it("starts with one line and an Open bounty, the cursor still at the terminal", () => {
