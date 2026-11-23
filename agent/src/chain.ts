@@ -1,8 +1,8 @@
 import { credentials } from "@grpc/grpc-js";
-import { ContractAddress, Parameter, ReceiveName, ReturnValue } from "@concordium/web-sdk";
+import { AccountAddress, ContractAddress, ContractEvent, Parameter, ReceiveName, ReturnValue, TransactionHash } from "@concordium/web-sdk";
 import { ConcordiumGRPCNodeClient } from "@concordium/web-sdk/nodejs";
 import { Token, TokenId } from "@concordium/web-sdk/plt";
-import { decodeConfig, decodeOptionBounty, decodeOptionEntry, encodeIdEntry, encodeU64, type Bounty } from "@deplace/shared";
+import { decodeConfig, decodeEvent, decodeOptionBounty, decodeOptionEntry, encodeIdEntry, encodeU64, type BoardEvent, type Bounty } from "@deplace/shared";
 
 /** What the agent reads from the chain before it pays anyone. */
 export interface ChainReads {
@@ -13,19 +13,56 @@ export interface ChainReads {
   escrowAccount(): Promise<string>;
 }
 
+/** Where a transaction the agent sent stands on chain. */
+export type TxOutcome = { state: "absent" } | { state: "pending" } | { state: "finalized"; failed: boolean; events: BoardEvent[] };
+
+/** The kit's chain reads: the agent's own, plus what it needs to find out whether a lost transaction or payment landed. */
+export interface KitChain extends ChainReads {
+  decimals(tokenId: string): Promise<number>;
+  txOutcome(hash: string): Promise<TxOutcome>;
+  /** The account's next nonce as of the last finalized block. */
+  finalizedNonce(account: string): Promise<bigint>;
+}
+
+/**
+ * The Deplace events in a transaction summary: the same walk as eventsFromSummary in
+ * server/src/chain/contract.ts (the agent does not import server code).
+ */
+export function deplaceEvents(summary: unknown, contract: { index: bigint; subindex: bigint }): BoardEvent[] {
+  const s = summary as { transactionType?: string; events?: { tag?: string; address?: { index: bigint; subindex: bigint }; events?: unknown[] }[] };
+  if (s?.transactionType !== "update" || !Array.isArray(s.events)) return [];
+  const out: BoardEvent[] = [];
+  for (const t of s.events) {
+    if ((t?.tag !== "Updated" && t?.tag !== "Interrupted") || !t.address) continue;
+    if (t.address.index !== contract.index || t.address.subindex !== contract.subindex) continue;
+    for (const e of t.events ?? []) {
+      const hex = typeof e === "string" ? e : ContractEvent.toHexString(e as ContractEvent.Type);
+      out.push(decodeEvent(new Uint8Array(Buffer.from(hex, "hex"))));
+    }
+  }
+  return out;
+}
+
+const notFound = (e: unknown) => {
+  const code = (e as { code?: unknown })?.code;
+  return code === "NOT_FOUND" || code === 5;
+};
+
 /**
  * The agent's own read access to the chain, so that the rails do not depend on what the
- * board says: token decimals, and who is owed what on the Deplace contract.
+ * board says: token decimals, who is owed what on the Deplace contract, and whether a
+ * transaction it sent landed.
  */
-export class AgentChain implements ChainReads {
+export class AgentChain implements KitChain {
   readonly client: ConcordiumGRPCNodeClient;
 
   constructor(
     host: string,
     port: number,
     private readonly contract: { index: bigint; subindex: bigint },
+    client?: ConcordiumGRPCNodeClient,
   ) {
-    this.client = new ConcordiumGRPCNodeClient(host, port, credentials.createSsl(), { timeout: 30_000 });
+    this.client = client ?? new ConcordiumGRPCNodeClient(host, port, credentials.createSsl(), { timeout: 30_000 });
   }
 
   async decimals(tokenId: string): Promise<number> {
@@ -57,5 +94,22 @@ export class AgentChain implements ChainReads {
 
   async escrowAccount(): Promise<string> {
     return decodeConfig(await this.view("view_config", new Uint8Array())).operator;
+  }
+
+  async txOutcome(hash: string): Promise<TxOutcome> {
+    let status: Awaited<ReturnType<ConcordiumGRPCNodeClient["getBlockItemStatus"]>>;
+    try {
+      status = await this.client.getBlockItemStatus(TransactionHash.fromHexString(hash));
+    } catch (e) {
+      if (notFound(e)) return { state: "absent" };
+      throw e;
+    }
+    if (status.status !== "finalized") return { state: "pending" };
+    const summary = status.outcome.summary as { transactionType?: string };
+    return { state: "finalized", failed: summary.transactionType === "failed", events: deplaceEvents(summary, this.contract) };
+  }
+
+  async finalizedNonce(account: string): Promise<bigint> {
+    return (await this.client.getAccountInfo(AccountAddress.fromBase58(account))).accountNonce.value;
   }
 }

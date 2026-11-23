@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import {
   AccountAddress,
@@ -28,6 +29,17 @@ export function loadAgentKeys(file: string): AgentKeys {
 /** Signs the board's login challenge (a Concordium account message signature). */
 export function signChallenge(keys: AgentKeys, message: string): Promise<AccountTransactionSignature> {
   return signMessage(AccountAddress.fromBase58(keys.address), message, keys.signer);
+}
+
+/**
+ * The hash the node names a signed transaction by: the SHA-256 of its block item. Those are the
+ * bytes `sendTransaction` sends for a version 1 (sponsored) transaction, and the rule
+ * server/src/chain/operator.ts uses for version 0. `Transaction.getAccountTransactionHash` gives
+ * another value for both versions in web-sdk 12.0.3, so it must not be used to find a transaction.
+ */
+export function transactionHash(signedTxJson: string): string {
+  const signed = Transaction.signableFromJSON(JSON.parse(signedTxJson));
+  return createHash("sha256").update(Transaction.serializeBlockItem(Transaction.finalize(signed))).digest("hex");
 }
 
 /**

@@ -9,7 +9,8 @@ import {
   buildBasicAccountSigner,
   verifyMessageSignature,
 } from "@concordium/web-sdk";
-import { signChallenge, signPrepared, type AgentKeys } from "../src/signer.js";
+import { ContractAddress, Energy, Parameter, ReceiveName } from "@concordium/web-sdk";
+import { signChallenge, signPrepared, transactionHash, type AgentKeys } from "../src/signer.js";
 
 function keys(fill: number): AgentKeys & { publicKeyHex: string } {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -39,6 +40,23 @@ describe("agent signer", () => {
     const signed = Transaction.signableFromJSON(JSON.parse(await signPrepared(k, Transaction.toJSONString(tx))));
     if (signed.version !== 0) throw new Error("expected v0");
     expect(Object.keys(signed.signature[0] ?? {})).toEqual(["0"]);
+  });
+
+  it("names a transaction by the same hash after a JSON round trip, and by another one when re-signed", async () => {
+    const sender = keys(7);
+    const other = keys(7); // same address, another key: a different signature
+    const tx = Transaction.updateContract(
+      { amount: CcdAmount.zero(), address: ContractAddress.create(13001n, 0n), receiveName: ReceiveName.fromString("deplace.claim"), message: Parameter.fromHexString("00") },
+      Energy.create(30_000n),
+    )
+      .addMetadata({ sender: AccountAddress.fromBase58(sender.address), nonce: SequenceNumber.create(1), expiry: TransactionExpiry.futureMinutes(5) })
+      .addSponsor(AccountAddress.fromBase58(keys(3).address))
+      .build();
+    const a = await signPrepared(sender, Transaction.toJSONString(tx));
+    const b = await signPrepared(other, Transaction.toJSONString(tx));
+    expect(transactionHash(a)).toMatch(/^[0-9a-f]{64}$/);
+    expect(transactionHash(JSON.stringify(JSON.parse(a)))).toBe(transactionHash(a));
+    expect(transactionHash(b)).not.toBe(transactionHash(a));
   });
 
   it("refuses to sign a transaction for another sender", async () => {
