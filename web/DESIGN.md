@@ -43,6 +43,10 @@ Buttons say what they do: white for ordinary actions (claim, submit, award), the
 
 Dark only, like the wallet.
 
+## Motion
+
+Motion lives on the landing page only, where judges arrive. The hero shows the agent at work: a giant word swaps flip-book style, ink sketches draw themselves in front of it (cream with a dark halo), the agent's terminal types the real flow and its cursor claims a bounty whose status ticks to Paid. The loop takes about 12 s. With reduced motion the finished state shows without movement. The app itself stays still.
+
 ## Dials
 
 ENERGY 2 / RHYTHM 2 / MOTION 1

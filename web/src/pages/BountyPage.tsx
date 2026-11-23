@@ -63,7 +63,7 @@ export function BountyPage({ id }: { id: string }) {
   return (
     <article className="stack page">
       <div className="page-head">
-        <a href="#/" className="icon-btn" aria-label="Back to the board">
+        <a href="#/board" className="icon-btn" aria-label="Back to the board">
           <Icon name="back" />
         </a>
       </div>

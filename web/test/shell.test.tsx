@@ -20,6 +20,12 @@ describe("Shell", () => {
     expect(screen.getByText("page")).toBeTruthy();
   });
 
+  it("links Board to #/board and the brand to the landing page", () => {
+    render(shell());
+    for (const a of screen.getAllByRole("link", { name: "Board" })) expect(a.getAttribute("href")).toBe("#/board");
+    for (const a of screen.getAllByRole("link", { name: "Deplace" })) expect(a.getAttribute("href")).toBe("#/");
+  });
+
   it('marks the current page in the nav with aria-current="page"', () => {
     render(shell({ route: "post" }));
     const current = screen.getAllByRole("link", { current: "page" });

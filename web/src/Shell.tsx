@@ -12,7 +12,7 @@ interface Item {
 }
 
 const BOARD: Item[] = [
-  { route: "board", href: "#/", label: "Board", icon: "board" },
+  { route: "board", href: "#/board", label: "Board", icon: "board" },
   { route: "post", href: "#/post", label: "Post", icon: "post" },
 ];
 const YOU: Item[] = [{ route: "me", href: "#/me", label: "My record", icon: "me" }];

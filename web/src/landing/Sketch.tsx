@@ -14,9 +14,14 @@ const DRAWINGS: string[][] = [
 ];
 
 export function Sketch({ index }: { index: number }) {
+  const paths = DRAWINGS[index % DRAWINGS.length]!;
   return (
     <svg className="sketch" viewBox="0 0 100 100" fill="none">
-      {DRAWINGS[index % DRAWINGS.length]!.map((d) => (
+      {/* A dark halo under the ink keeps the line readable over the white letters and the dark stage alike. */}
+      {paths.map((d) => (
+        <path key={`halo-${d}`} className="halo" d={d} pathLength={1} />
+      ))}
+      {paths.map((d) => (
         <path key={d} d={d} pathLength={1} />
       ))}
     </svg>

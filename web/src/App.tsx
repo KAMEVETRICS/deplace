@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Banner } from "./components.js";
 import { BountyPage } from "./pages/BountyPage.js";
+import { Landing } from "./pages/Landing.js";
 import { Board } from "./pages/Board.js";
 import { PostBounty } from "./pages/PostBounty.js";
 import { Profile } from "./pages/Profile.js";
@@ -18,7 +19,7 @@ function useHash(): string {
 }
 
 function routeOf(hash: string, account: string | null): Route {
-  if (hash === "#/" || hash.startsWith("#/b/")) return "board";
+  if (hash === "#/board" || hash.startsWith("#/b/")) return "board";
   if (hash === "#/post") return "post";
   if (hash === "#/me" || (account !== null && hash === `#/p/${account}`)) return "me";
   return "other";
@@ -45,6 +46,8 @@ function Page({ hash }: { hash: string }) {
 export function App() {
   const hash = useHash();
   const { config, identity, account, connect, busy, toast, setToast } = useSession();
+  // Judges land on the landing page; the board and everything else live inside the shell.
+  if (hash === "#/" || hash === "#") return <Landing />;
   return (
     <Shell route={routeOf(hash, account)} account={account} label={identity?.label ?? null} token={config?.rewardToken ?? "EUDemo"} busy={busy} onConnect={connect}>
       <div className="stack page">
