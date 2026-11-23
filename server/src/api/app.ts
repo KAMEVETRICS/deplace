@@ -51,7 +51,8 @@ export function createApp({ service, extraRouters = [], mounts = [], health }: A
       funding: q.funding === "Escrowed" || q.funding === "NotFunded" ? q.funding : undefined,
       poster: typeof q.poster === "string" ? q.poster : undefined,
     } as const;
-    res.json({ bounties: await service.list(f) });
+    const bounties = await service.list(f);
+    res.json({ bounties, names: service.names(bounties.map((b) => b.poster)) });
   });
   app.get("/bounties/:id", async (req, res) => {
     res.json(await service.detail(id(req)));
@@ -60,6 +61,9 @@ export function createApp({ service, extraRouters = [], mounts = [], health }: A
     const json = service.spec(String(req.params.hash));
     if (!json) throw new BoardError(404, "no such spec");
     res.type("application/json").send(json);
+  });
+  app.put("/me/username", (req, res) => {
+    res.json(service.setUsername(who(req), req.body?.username));
   });
   app.get("/profiles/:account", async (req, res) => {
     res.json(await service.profile(String(req.params.account)));

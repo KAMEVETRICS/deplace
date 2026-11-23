@@ -27,7 +27,7 @@ import { checkBadge } from "../identity/badge.js";
 import { checkPayoutEligible } from "../identity/eligibility.js";
 import type { Intent } from "../sponsor/policy.js";
 import type { PreparedTx } from "../sponsor/sponsor.js";
-import type { BoardStore, BountyFilter } from "../store/db.js";
+import { UsernameTaken, type BoardStore, type BountyFilter } from "../store/db.js";
 import { syncFromChain } from "../store/sync.js";
 
 /** An error the API and MCP layers report to the caller as-is. */
@@ -84,7 +84,12 @@ export interface Identity {
   account: string;
   tokenId?: bigint;
   badge?: string;
+  /** People and companies: the username they picked, or null until they pick one. Agents have none. */
+  username?: string | null;
 }
+
+/** As D place: lowercase letters, digits and underscores, 3 to 20 characters. */
+const USERNAME = /^[a-z0-9_]{3,20}$/;
 
 interface Session extends Identity {
   expiresAt: number;
@@ -148,7 +153,7 @@ export class BoardService {
     if (input.account) {
       if (!(await verifyAccountSignature(this.d.accounts, input.account, message, input.signature))) throw new BoardError(401, "signature does not match the account's keys");
       const who = await classifyAccount(this.d.accounts, this.d.idpName, input.account);
-      identity = { kind: who.kind, account: input.account, label: `Verified ${who.kind} (${who.idpName})` };
+      identity = { kind: who.kind, account: input.account, label: `Verified ${who.kind} (${who.idpName})`, username: this.d.store.username(input.account) };
     } else {
       const v = await verifyAgent(
         { fetch: this.d.fetch, badgeApi: this.d.config.badgeApi, lookup: this.d.accounts, agentWallet: this.d.agentWallet },
@@ -156,6 +161,7 @@ export class BoardService {
       );
       if (!v.ok) throw new BoardError(v.unavailable ? 503 : 401, v.reason, v.retryAfter ? { retryAfter: v.retryAfter } : {});
       identity = { kind: "agent", account: v.payoutAccount, tokenId: v.tokenId, badge: input.badge!, label: `Agent #${v.tokenId} (Verified by Concordium badge)` };
+      this.d.store.rememberAgent(v.payoutAccount, v.tokenId, this.d.now());
     }
     const token = randomBytes(24).toString("base64url");
     this.sessions.set(token, { ...identity, expiresAt: this.d.now() + SESSION_TTL_MS });
@@ -168,6 +174,29 @@ export class BoardService {
     const s = token ? this.sessions.get(token) : undefined;
     if (!s || s.expiresAt < this.d.now()) throw new BoardError(401, "log in first (POST /auth/challenge, then /auth/login)");
     return s;
+  }
+
+  // --- names -------------------------------------------------------------------
+
+  /** Saves the username a signed-in person picked. Agents keep their registry name. */
+  setUsername(who: Identity, raw: unknown): { username: string } {
+    if (who.kind === "agent") throw new BoardError(403, "agents keep their registry name");
+    const username = String(raw ?? "").trim().toLowerCase();
+    if (!USERNAME.test(username)) throw new BoardError(400, "a username is 3 to 20 lowercase letters, digits or underscores");
+    try {
+      this.d.store.setUsername(who.account, username, this.d.now());
+    } catch (e) {
+      if (e instanceof UsernameTaken) throw new BoardError(409, "That username is taken.");
+      throw e;
+    }
+    // Every open session of this account shows the new name.
+    for (const s of this.sessions.values()) if (s.account === who.account && s.kind !== "agent") s.username = username;
+    return { username };
+  }
+
+  /** "@name" for people and "Agent #N" for agents, for the accounts that have one. */
+  names(accounts: string[]): Record<string, string> {
+    return this.d.store.names(accounts);
   }
 
   // --- posting ----------------------------------------------------------------
@@ -487,7 +516,7 @@ export class BoardService {
       this.d.chain.stats(account),
       classifyAccount(this.d.accounts, this.d.idpName, account).catch(() => null),
     ]);
-    return { account, stats, identity, link: accountLink(account) };
+    return { account, stats, identity, link: accountLink(account), names: this.names([account]) };
   }
 
   async detail(id: bigint) {
@@ -498,7 +527,9 @@ export class BoardService {
       if (e) entries.push({ ...e, entryId: i });
     }
     const preview = (hash: string) => this.d.store.submission(hash)?.preview ?? null;
+    const worker = "worker" in b.status ? [b.status.worker] : [];
     return {
+      names: this.names([b.poster, ...worker, ...entries.map((e) => e.worker)]),
       bounty: b,
       spec: this.parsedSpec(b.specHash),
       submission: b.status.type === "Submitted" ? { workHash: b.status.workHash, preview: preview(b.status.workHash) } : null,

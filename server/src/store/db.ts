@@ -38,6 +38,14 @@ export interface BountyFilter {
  * of truth and the cache can be rebuilt), the off-chain data whose hashes are on chain,
  * the events of transactions the board relayed, and the escrow worker's durable records.
  */
+/** Another account already has this username. */
+export class UsernameTaken extends Error {
+  constructor(readonly username: string) {
+    super(`username ${username} is taken`);
+    this.name = "UsernameTaken";
+  }
+}
+
 export class BoardStore {
   readonly db: DatabaseSync;
   readonly escrow: EscrowStore;
@@ -55,8 +63,45 @@ export class BoardStore {
       CREATE TABLE IF NOT EXISTS escrow_transfers (key TEXT PRIMARY KEY, json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deposits (tx TEXT PRIMARY KEY, seq INTEGER NOT NULL, json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS x402_payments (bounty_id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS profiles (account TEXT PRIMARY KEY, username TEXT UNIQUE, agent_token TEXT, at INTEGER NOT NULL);
     `);
     this.escrow = this.escrowStore();
+  }
+
+  /** A person's username, stored lowercase, or null. */
+  username(account: string): string | null {
+    return (this.db.prepare("SELECT username FROM profiles WHERE account = ?").get(account) as { username: string | null } | undefined)?.username ?? null;
+  }
+
+  /** Saves (or changes) a person's username; their old one becomes free. Throws UsernameTaken. */
+  setUsername(account: string, username: string, at: number) {
+    try {
+      this.db
+        .prepare("INSERT INTO profiles (account, username, at) VALUES (?, ?, ?) ON CONFLICT(account) DO UPDATE SET username = excluded.username, at = excluded.at")
+        .run(account, username, at);
+    } catch (e) {
+      if (/UNIQUE constraint failed: profiles\.username/.test((e as Error).message)) throw new UsernameTaken(username);
+      throw e;
+    }
+  }
+
+  /** Records an agent's registry token at its badge login, so the board can name it. */
+  rememberAgent(account: string, tokenId: bigint, at: number) {
+    this.db
+      .prepare("INSERT INTO profiles (account, agent_token, at) VALUES (?, ?, ?) ON CONFLICT(account) DO UPDATE SET agent_token = excluded.agent_token")
+      .run(account, tokenId.toString(), at);
+  }
+
+  /** Display names: "@name" for people, "Agent #N" for agents; accounts without one are left out. */
+  names(accounts: string[]): Record<string, string> {
+    const q = this.db.prepare("SELECT username, agent_token FROM profiles WHERE account = ?");
+    const out: Record<string, string> = {};
+    for (const account of new Set(accounts)) {
+      const r = q.get(account) as { username: string | null; agent_token: string | null } | undefined;
+      if (r?.username) out[account] = `@${r.username}`;
+      else if (r?.agent_token) out[account] = `Agent #${r.agent_token}`;
+    }
+    return out;
   }
 
   upsertBounty(b: Bounty) {

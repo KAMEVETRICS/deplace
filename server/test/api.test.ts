@@ -153,7 +153,7 @@ const spec = { title: "Facts about a page", description: "Title, word count and 
 describe("auth", () => {
   it("logs a person in with a signed challenge and labels the identity provider", async () => {
     const r = await loginAccount();
-    expect(r.identity).toEqual({ kind: "person", label: "Verified person (Concordium testnet IP)", account: poster.address });
+    expect(r.identity).toEqual({ kind: "person", label: "Verified person (Concordium testnet IP)", account: poster.address, username: null });
     expect(typeof r.token).toBe("string");
   });
 
@@ -367,5 +367,56 @@ describe("relay and reads", () => {
     expect((await call("GET", "/bounties")).body.bounties).toHaveLength(2);
     expect((await call("GET", "/bounties?kind=Contest")).body.bounties.map((b: any) => b.id)).toEqual(["1"]);
     expect((await call("GET", "/bounties?funding=NotFunded")).body.bounties.map((b: any) => b.id)).toEqual(["0"]);
+  });
+});
+
+describe("usernames", () => {
+  async function loginAgent() {
+    const ch = await call("POST", "/auth/challenge", { badge: "JyP9Badge" });
+    return (await call("POST", "/auth/login", { badge: "JyP9Badge", nonce: ch.body.nonce, signature: await agentWallet.sign(ch.body.message) })).body;
+  }
+
+  it("signs a person in without a username, then saves the one they pick, lowercased", async () => {
+    const r = await loginAccount();
+    expect(r.identity.username).toBeNull();
+    expect(await call("PUT", "/me/username", { username: "  Alice_1 " }, r.token)).toEqual({ status: 200, body: { username: "alice_1" } });
+    expect((await loginAccount()).identity.username).toBe("alice_1");
+  });
+
+  it("refuses names outside the rules, and a name another account has", async () => {
+    const a = await loginAccount(poster);
+    const b = await loginAccount(worker);
+    for (const bad of ["al", "a".repeat(21), "al-ice", "al ice", "élise", ""]) {
+      expect((await call("PUT", "/me/username", { username: bad }, a.token)).status, bad).toBe(400);
+    }
+    expect((await call("PUT", "/me/username", { username: "alice" }, a.token)).status).toBe(200);
+    const taken = await call("PUT", "/me/username", { username: "ALICE" }, b.token);
+    expect(taken).toEqual({ status: 409, body: { error: "That username is taken." } });
+  });
+
+  it("frees the old name when a person changes theirs, and their session shows the new one", async () => {
+    const a = await loginAccount(poster);
+    await call("PUT", "/me/username", { username: "alice" }, a.token);
+    await call("PUT", "/me/username", { username: "alice2" }, a.token);
+    expect(service.session(`Bearer ${a.token}`).username).toBe("alice2");
+    const b = await loginAccount(worker);
+    expect((await call("PUT", "/me/username", { username: "alice" }, b.token)).status).toBe(200);
+  });
+
+  it("needs a session, and leaves agents their registry name", async () => {
+    expect((await call("PUT", "/me/username", { username: "alice" })).status).toBe(401);
+    const agent = await loginAgent();
+    expect((await call("PUT", "/me/username", { username: "robot" }, agent.token)).status).toBe(403);
+  });
+
+  it("names people and agents in bounty lists, bounty details and profiles", async () => {
+    const a = await loginAccount(poster);
+    await call("PUT", "/me/username", { username: "alice" }, a.token);
+    await loginAgent();
+    chainBounties.set(1n, bounty(1n, { status: { type: "Claimed", worker: agentWallet.address, agent: 9n } }));
+    expect((await call("GET", "/bounties")).body.names).toEqual({ [poster.address]: "@alice" });
+    expect((await call("GET", "/bounties/1")).body.names).toEqual({ [poster.address]: "@alice", [agentWallet.address]: "Agent #9" });
+    expect((await call("GET", `/profiles/${poster.address}`)).body.names).toEqual({ [poster.address]: "@alice" });
+    expect((await call("GET", `/profiles/${worker.address}`)).body.names).toEqual({});
   });
 });
