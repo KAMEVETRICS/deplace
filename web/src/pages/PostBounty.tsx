@@ -21,6 +21,7 @@ export function PostBounty() {
   const [deadline, setDeadline] = useState(inTwoHours);
   const [fundNow, setFundNow] = useState(true);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
+  const token = config?.rewardToken ?? "EUDemo";
 
   async function submit() {
     let parsed: unknown;
@@ -41,53 +42,66 @@ export function PostBounty() {
     location.hash = `#/b/${id}`;
   }
 
-  if (!account) return <p className="muted">Connect Concordium Wallet for Web to post a bounty.</p>;
+  if (!account)
+    return (
+      <div className="empty">
+        <h1>Post a bounty</h1>
+        <p className="lede">Connect Concordium Wallet for Web to post a bounty.</p>
+      </div>
+    );
   return (
-    <section className="card stack form">
-      <h1>Post a bounty</h1>
-      <FeeNotice prepared={prepared} />
-      <label>
-        Title
-        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
-      </label>
-      <label>
-        Description
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
-      </label>
-      <div className="row gap wrap">
-        <label>
-          Task kind
-          <input value={taskKind} onChange={(e) => setTaskKind(e.target.value)} />
-        </label>
-        <label className="grow">
-          Input (JSON)
-          <input value={input} onChange={(e) => setInput(e.target.value)} />
-        </label>
+    <section className="stack page">
+      <div className="stack tight">
+        <h1>Post a bounty</h1>
+        <p className="lede">The reward is paid in {token}. Escrow it now, or leave it as a promise that is paid on delivery.</p>
       </div>
-      <div className="row gap wrap">
-        <label>
-          Kind
-          <select value={kind} onChange={(e) => setKind(e.target.value as "Exclusive" | "Contest")}>
-            <option value="Exclusive">Exclusive (one worker claims)</option>
-            <option value="Contest">Contest (many enter, you award one)</option>
-          </select>
+      <div className="card stack form">
+        <FeeNotice prepared={prepared} />
+        <label className="field">
+          <span>Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
         </label>
-        <label>
-          Reward ({config?.rewardToken ?? "EUDemo"})
-          <input value={reward} onChange={(e) => setReward(e.target.value)} inputMode="decimal" />
+        <label className="field">
+          <span>Description</span>
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
         </label>
-        <label>
-          Deadline
-          <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+        <div className="field-row">
+          <label className="field">
+            <span>Task kind</span>
+            <input value={taskKind} onChange={(e) => setTaskKind(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Input (JSON)</span>
+            <input value={input} onChange={(e) => setInput(e.target.value)} />
+          </label>
+        </div>
+        <div className="field-row">
+          <label className="field">
+            <span>Kind</span>
+            <select value={kind} onChange={(e) => setKind(e.target.value as "Exclusive" | "Contest")}>
+              <option value="Exclusive">Exclusive (one worker claims)</option>
+              <option value="Contest">Contest (many enter, you award one)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Reward ({token})</span>
+            <input value={reward} onChange={(e) => setReward(e.target.value)} inputMode="decimal" />
+          </label>
+          <label className="field">
+            <span>Deadline</span>
+            <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          </label>
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={fundNow} onChange={(e) => setFundNow(e.target.checked)} />
+          <span>Escrow the reward now (custodial escrow account; otherwise the bounty is "Not funded" and paid on delivery)</span>
         </label>
+        <div className="row">
+          <button className={fundNow ? "btn money" : "btn"} disabled={busy} onClick={submit}>
+            {fundNow ? `Post and escrow ${reward} ${token}` : "Post bounty"}
+          </button>
+        </div>
       </div>
-      <label className="row gap">
-        <input type="checkbox" checked={fundNow} onChange={(e) => setFundNow(e.target.checked)} />
-        Escrow the reward now (custodial escrow account; otherwise the bounty is "Not funded" and paid on delivery)
-      </label>
-      <button className="primary" disabled={busy} onClick={submit}>
-        Post bounty
-      </button>
     </section>
   );
 }

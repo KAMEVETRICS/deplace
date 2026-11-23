@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { Banner } from "../components.js";
 import { useSession } from "../session.js";
 import type { Bounty, Stats } from "../types.js";
 import { BountyCard } from "./Board.js";
@@ -15,40 +16,48 @@ export function Profile({ account }: { account: string }) {
     api.bounties({ poster: account }).then((r) => setPosted(r.bounties)).catch(() => setPosted([]));
   }, [account]);
 
-  if (error) return <div className="notice notice-error">{error}</div>;
+  if (error) return <Banner kind="err">{error}</Banner>;
   if (!p) return <p className="muted">Loading…</p>;
+  // Marks that go on an account's public record read as danger once they are above zero.
+  const stats: [label: string, value: number, mark: boolean][] = [
+    ["Posted", p.stats.posted, false],
+    ["Paid out", p.stats.paidAsPoster, false],
+    ["Accepted, unpaid", p.stats.unpaid, true],
+    ["Final rejections", p.stats.rejectedFinal, true],
+    ["Unawarded contests", p.stats.noAward, true],
+    ["Paid as worker", p.stats.paidAsWorker, false],
+  ];
   return (
-    <section className="stack">
-      <h1 className="break">{account}</h1>
-      <p className="muted">
-        {p.identity ? `Verified ${p.identity.kind} (${p.identity.idpName})` : "Identity not found"} ·{" "}
-        <a href={p.link} target="_blank" rel="noreferrer">
-          CCDExplorer
-        </a>
-      </p>
+    <section className="stack page">
+      <div className="stack tight">
+        <span className="kicker">Public record</span>
+        <h1>{p.identity ? `Verified ${p.identity.kind}` : "Account"}</h1>
+        <p className="meta break">
+          {account}
+          {p.identity && ` · ${p.identity.idpName}`} ·{" "}
+          <a href={p.link} target="_blank" rel="noreferrer">
+            CCDExplorer
+          </a>
+        </p>
+      </div>
       <div className="stats">
-        {(
-          [
-            ["Posted", p.stats.posted],
-            ["Paid out", p.stats.paidAsPoster],
-            ["Accepted, unpaid", p.stats.unpaid],
-            ["Final rejections", p.stats.rejectedFinal],
-            ["Unawarded contests", p.stats.noAward],
-            ["Paid as worker", p.stats.paidAsWorker],
-          ] as const
-        ).map(([k, v]) => (
-          <div key={k} className="card stat">
-            <div className="stat-value">{v}</div>
-            <div className="muted small">{k}</div>
+        {stats.map(([label, value, mark]) => (
+          <div key={label} className={mark && value > 0 ? "card stat danger" : "card stat"}>
+            <div className="stat-value">{value}</div>
+            <div className="meta">{label}</div>
           </div>
         ))}
       </div>
       <h2>Bounties posted</h2>
-      <div className="grid">
-        {posted.map((b) => (
-          <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={config?.rewardToken ?? "EUDemo"} />
-        ))}
-      </div>
+      {posted.length === 0 ? (
+        <p>None yet.</p>
+      ) : (
+        <div className="grid two">
+          {posted.map((b) => (
+            <BountyCard key={b.id} b={b} decimals={config?.decimals ?? 6} token={config?.rewardToken ?? "EUDemo"} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
