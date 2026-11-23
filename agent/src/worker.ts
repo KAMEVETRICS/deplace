@@ -1,3 +1,4 @@
+import { isRetryable, oneLine } from "./board-client.js";
 import { checkPrepared, type GuardOptions } from "./rails/guard.js";
 import { signChallenge, signPrepared, type AgentKeys } from "./signer.js";
 import type { TaskHandler, TaskSpec } from "./tasks/types.js";
@@ -63,9 +64,14 @@ export async function signAndSubmit(
 async function waitForOutcome(o: WorkerOptions, id: string): Promise<string> {
   const sleep = o.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   for (let i = 0; i < (o.maxPolls ?? 240); i++) {
-    const s = await o.board.call<{ status: { type: string } }>("get_status", { bounty_id: id });
-    const t = s.status.type;
-    if (FINAL.has(t) || t === "Claimed") {
+    let t: string | null = null;
+    try {
+      t = (await o.board.call<{ status: { type: string } }>("get_status", { bounty_id: id })).status.type;
+    } catch (e) {
+      if (!isRetryable(e)) throw e;
+      o.log(`could not read bounty ${id}'s status, trying again (${oneLine(e)})`);
+    }
+    if (t !== null && (FINAL.has(t) || t === "Claimed")) {
       o.log(`bounty ${id}: ${t}`);
       return t;
     }
@@ -77,14 +83,23 @@ async function waitForOutcome(o: WorkerOptions, id: string): Promise<string> {
 /**
  * Finds one open bounty this agent can do, claims it (Exclusive) or enters it (Contest),
  * does the work, submits it and waits for the outcome. Resubmits after a rejection.
- * Returns null when nothing suitable is open.
+ * Returns null when nothing suitable is open, or when the board failed for a moment before
+ * anything was claimed (logged; the caller tries again next round).
  */
 export async function workOne(o: WorkerOptions): Promise<{ bountyId: string; status: string; txs: string[] } | null> {
-  const eligible = await o.board.call<{ ok: boolean; reason?: string; faucetUrl?: string }>("check_payout_eligibility", { account: o.keys.address });
-  if (!eligible.ok) throw new Error(`payout account ${o.keys.address} cannot be paid: ${eligible.reason} (faucet: ${eligible.faucetUrl ?? "n/a"})`);
-  const session = await login(o);
-
-  const { bounties } = await o.board.call<{ bounties: ListedBounty[] }>("list_bounties", { status: "Open" });
+  let session: string;
+  let bounties: ListedBounty[];
+  try {
+    const eligible = await o.board.call<{ ok: boolean; reason?: string; faucetUrl?: string }>("check_payout_eligibility", { account: o.keys.address });
+    if (!eligible.ok) throw new Error(`payout account ${o.keys.address} cannot be paid: ${eligible.reason} (faucet: ${eligible.faucetUrl ?? "n/a"})`);
+    session = await login(o);
+    ({ bounties } = await o.board.call<{ bounties: ListedBounty[] }>("list_bounties", { status: "Open" }));
+  } catch (e) {
+    // Nothing is claimed yet, so a temporary failure only costs this round.
+    if (!isRetryable(e)) throw e;
+    o.log(`the board could not answer just now, trying again next round (${oneLine(e)})`);
+    return null;
+  }
   const pick = bounties
     .filter((b) => b.poster !== o.keys.address && b.spec)
     .map((b) => ({ b, handler: o.handlers.find((h) => h.canHandle(b.spec!)) }))

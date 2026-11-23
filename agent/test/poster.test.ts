@@ -17,6 +17,7 @@ import {
 } from "@concordium/web-sdk";
 import { encodePaymentRequiredHeader } from "@x402/core/http";
 import type { Bounty } from "@deplace/shared";
+import { BoardToolError } from "../src/board-client.js";
 import type { ChainReads } from "../src/chain.js";
 import { postAndPay } from "../src/poster.js";
 import { SpendBudget } from "../src/rails/budget.js";
@@ -59,6 +60,8 @@ interface Scenario {
   chainReward?: bigint;
   /** A board that asks to be paid on delivery although the reward was escrowed. */
   askDeliveryAfterEscrow?: boolean;
+  /** Errors get_status throws, one per call, before it answers. */
+  statusFailures?: Error[];
 }
 
 function world(s: Scenario = {}) {
@@ -108,8 +111,11 @@ function world(s: Scenario = {}) {
           return { txHash: "aa".repeat(32), link: "https://ccdexplorer.io/testnet/transaction/aa", events: [{ type: "Posted", id: "9" }] };
         case "prepare_fund":
           return { x402: { method: "POST", url: "http://board.test/bounties/9/fund" }, fallback: { prepared: { txJson: "{}" } } };
-        case "get_status":
+        case "get_status": {
+          const failure = s.statusFailures?.shift();
+          if (failure) throw failure;
           return { status: { type: "Submitted" } };
+        }
         case "prepare_accept":
           accepted = true;
           return prepared("accept");
@@ -203,5 +209,19 @@ describe("poster agent rails", () => {
     const w = world({ askDeliveryAfterEscrow: true });
     await expect(postAndPay(w.opts({ escrow: true }))).rejects.toThrow(/already paid/);
     expect(w.signatures).toEqual(["http://board.test/bounties/9/fund"]);
+  });
+
+  it("keeps waiting for a submission when a status read fails for a moment", async () => {
+    const blip = new BoardToolError("get_status", JSON.stringify({ error: "the board lost its network connection (read ECONNRESET), retry later", retryable: true }));
+    const w = world({ statusFailures: [blip] });
+    await postAndPay(w.opts());
+    expect(w.calls.filter((c) => c === "get_status")).toHaveLength(2);
+    expect(w.signatures).toEqual(["http://board.test/bounties/9/work"]);
+  });
+
+  it("stops waiting for a submission when a status read fails in a way retrying will not fix", async () => {
+    const w = world({ statusFailures: [new BoardToolError("get_status", "MCP error -32603: boom")] });
+    await expect(postAndPay(w.opts())).rejects.toThrow(/boom/);
+    expect(w.calls).not.toContain("prepare_accept");
   });
 });

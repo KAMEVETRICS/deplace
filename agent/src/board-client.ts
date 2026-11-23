@@ -3,12 +3,33 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Board } from "./worker.js";
 
 export class BoardToolError extends Error {
+  /** The board marked the failure temporary (`"retryable": true`): the same call may work in a moment. */
+  readonly retryable: boolean;
+
   constructor(
     readonly tool: string,
     readonly detail: string,
   ) {
     super(`${tool}: ${detail}`);
     this.name = "BoardToolError";
+    this.retryable = markedRetryable(detail);
+  }
+}
+
+/** A failure the board marked temporary, such as the badge service or the chain being unreachable. */
+export function isRetryable(e: unknown): e is BoardToolError {
+  return e instanceof BoardToolError && e.retryable;
+}
+
+/** The board's JSON error on one log line. */
+export const oneLine = (e: BoardToolError) => `${e.tool}: ${e.detail.replace(/\s+/g, " ")}`;
+
+/** The board's refusals are JSON; any other tool error (a crash inside the board) is plain text and not retryable. */
+function markedRetryable(detail: string): boolean {
+  try {
+    return (JSON.parse(detail) as { retryable?: unknown } | null)?.retryable === true;
+  } catch {
+    return false; // plain text: not one of the board's refusals
   }
 }
 

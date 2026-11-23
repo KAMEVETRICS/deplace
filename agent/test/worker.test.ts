@@ -12,6 +12,7 @@ import {
   TransactionExpiry,
   buildBasicAccountSigner,
 } from "@concordium/web-sdk";
+import { BoardToolError } from "../src/board-client.js";
 import { RailViolation } from "../src/rails/guard.js";
 import type { AgentKeys } from "../src/signer.js";
 import type { TaskHandler } from "../src/tasks/types.js";
@@ -61,13 +62,18 @@ const handler: TaskHandler = {
   run: async () => ({ preview: "preview text", full: '{"words":3}' }),
 };
 
-/** A scripted board: records calls; status walks Claimed -> Submitted -> Accepted -> Paid. */
-function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: string[]; compromised?: boolean } = {}) {
+/**
+ * A scripted board: records calls; status walks Claimed -> Submitted -> Accepted -> Paid.
+ * `fail` queues errors a tool throws, one per call, before it answers normally.
+ */
+function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: string[]; compromised?: boolean; fail?: Record<string, Error[]> } = {}) {
   const calls: { name: string; args: any }[] = [];
   const statuses = [...(over.statuses ?? ["Submitted", "Accepted", "Paid"])];
   const b: Board = {
     async call(name: string, args: Record<string, unknown>): Promise<any> {
       calls.push({ name, args });
+      const failure = over.fail?.[name]?.shift();
+      if (failure) throw failure;
       switch (name) {
         case "check_payout_eligibility":
           return (over.eligible ?? true) ? { ok: true } : { ok: false, reason: "not on allow list", faucetUrl: "https://faucet" };
@@ -171,5 +177,32 @@ describe("reference worker", () => {
   it("gives up waiting at a final state that is not Paid", async () => {
     const { b } = board({ statuses: ["Submitted", "RejectedFinal"] });
     expect((await workOne(opts(b)))?.status).toBe("RejectedFinal");
+  });
+
+  /** What the board sends when the badge service or the chain could not be reached. */
+  const busy = (tool: string) => new BoardToolError(tool, JSON.stringify({ error: "badge service unavailable (TypeError), retry later", retryable: true }, null, 2));
+
+  it.each(["check_payout_eligibility", "request_challenge", "login", "list_bounties"])("sits out a round when %s fails for a moment", async (tool) => {
+    const { b, calls } = board({ fail: { [tool]: [busy(tool)] } });
+    const log: string[] = [];
+    expect(await workOne(opts(b, log))).toBeNull();
+    expect(calls.map((c) => c.name)).not.toContain("prepare_claim");
+    expect(log.filter((m) => m.includes("retry later"))).toHaveLength(1);
+  });
+
+  it("still stops when the board refuses its badge", async () => {
+    const { b } = board({ fail: { login: [new BoardToolError("login", JSON.stringify({ error: "badge is not valid" }))] } });
+    await expect(workOne(opts(b))).rejects.toThrow(/badge is not valid/);
+  });
+
+  it("keeps waiting for its pay when a status read fails for a moment", async () => {
+    const { b, calls } = board({ fail: { get_status: [busy("get_status")] } });
+    expect((await workOne(opts(b)))?.status).toBe("Paid");
+    expect(calls.filter((c) => c.name === "get_status")).toHaveLength(4);
+  });
+
+  it("stops waiting when a status read fails in a way retrying will not fix", async () => {
+    const { b } = board({ fail: { get_status: [new BoardToolError("get_status", "MCP error -32603: boom")] } });
+    await expect(workOne(opts(b))).rejects.toThrow(/boom/);
   });
 });

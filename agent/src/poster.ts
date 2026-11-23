@@ -3,6 +3,7 @@ import { parseTokenAmount } from "@deplace/shared";
 import { CONCORDIUM_TESTNET_CAIP2 } from "@x402/concordium";
 import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
+import { isRetryable, oneLine } from "./board-client.js";
 import type { ChainReads } from "./chain.js";
 import type { SpendBudget } from "./rails/budget.js";
 import { RailViolation, type GuardOptions } from "./rails/guard.js";
@@ -105,9 +106,15 @@ export async function postAndPay(o: PosterOptions) {
 
   log(`bounty ${id} is open; waiting for a submission`);
   for (;;) {
-    const s = await board.call<{ status: { type: string } }>("get_status", { bounty_id: idText });
-    if (s.status.type === "Submitted") break;
-    if (["Expired", "Cancelled"].includes(s.status.type)) throw new Error(`bounty ${id} ended as ${s.status.type}`);
+    let status: string | null = null;
+    try {
+      status = (await board.call<{ status: { type: string } }>("get_status", { bounty_id: idText })).status.type;
+    } catch (e) {
+      if (!isRetryable(e)) throw e;
+      log(`could not read bounty ${id}'s status, trying again (${oneLine(e)})`);
+    }
+    if (status === "Submitted") break;
+    if (status !== null && ["Expired", "Cancelled"].includes(status)) throw new Error(`bounty ${id} ended as ${status}`);
     await new Promise((r) => setTimeout(r, o.pollMs ?? 15_000));
   }
   log(`accepting bounty ${id}`);
