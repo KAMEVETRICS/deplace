@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { WalletApi } from "@concordium/browser-wallet-api-helpers";
 import { api, ApiError, setToken, type PreparedResponse } from "./api.js";
 import type { BoardConfig, Identity } from "./types.js";
+import { untilLoaded } from "./retry.js";
 import { connectWallet, sendPrepared } from "./wallet.js";
 
 export interface Toast {
@@ -45,9 +46,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
+  // The board may be briefly unreachable when the page opens: keep trying, and clear the
+  // error once it answers (unless another message has replaced it meanwhile).
   useEffect(() => {
-    api.config().then(setConfig).catch((e) => setToast(message(e)));
-    api.schema().then((s) => setSchema(s.value)).catch(() => setSchema(null));
+    const page = new AbortController();
+    let shown: Toast | null = null;
+    void untilLoaded(() => api.config(), {
+      signal: page.signal,
+      onError: (e, attempt) => {
+        if (attempt === 1) setToast((shown = message(e)));
+      },
+    }).then((c) => {
+      if (!c) return;
+      setConfig(c);
+      if (shown) setToast((t) => (t === shown ? null : t));
+    });
+    void untilLoaded(() => api.schema(), { signal: page.signal }).then((s) => {
+      if (s) setSchema(s.value);
+    });
+    return () => page.abort();
   }, []);
 
   const connect = useCallback(async () => {
