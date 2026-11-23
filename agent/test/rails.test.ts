@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,8 +15,11 @@ import {
   TransactionExpiry,
 } from "@concordium/web-sdk";
 import { CborAccountAddress, TokenAmount, TokenId, createTokenUpdatePayload } from "@concordium/web-sdk/plt";
-import { checkPrepared, RailViolation, type GuardOptions } from "../src/rails/guard.js";
+import { encodeClaim, encodeEnter, encodeIdEntry, encodeIdHash, encodePost, encodeU64 } from "@deplace/shared";
+import { agentTokenId } from "../src/identity.js";
+import { checkPrepared, RailViolation, reasonHash, type GuardOptions } from "../src/rails/guard.js";
 import { SpendBudget } from "../src/rails/budget.js";
+import { specHashFor } from "../src/rails/spec-hash.js";
 import { guardedPaymentClient } from "../src/rails/payments.js";
 import { x402Client } from "@x402/core/client";
 
@@ -38,6 +41,20 @@ function call(entrypoint: string, o: { contract?: typeof DEPLACE; ccd?: bigint; 
     Energy.create(o.energy ?? 30_000n),
   ).addMetadata(meta(o.sender));
   return Transaction.toJSONString(o.sponsored === false ? tx.build() : tx.addSponsor(AccountAddress.fromBase58(SPONSOR)).build());
+}
+
+/** A sponsored Deplace call of `entrypoint` from ME, carrying `parameter` (as the board's prepare_* tools return). */
+function callWith(entrypoint: string, parameter: Uint8Array) {
+  const tx = Transaction.updateContract(
+    {
+      amount: CcdAmount.zero(),
+      address: ContractAddress.create(DEPLACE.index, DEPLACE.subindex),
+      receiveName: ReceiveName.fromString(`deplace.${entrypoint}`),
+      message: Parameter.fromBuffer(parameter.slice().buffer),
+    },
+    Energy.create(30_000n),
+  ).addMetadata(meta());
+  return Transaction.toJSONString(tx.addSponsor(AccountAddress.fromBase58(SPONSOR)).build());
 }
 
 function tokenTransfer() {
@@ -77,6 +94,76 @@ describe("transaction guard", () => {
     expect(() => checkPrepared(call("claim", { sponsored: false }), ["claim"], guard)).toThrow(/fee/);
     expect(() => checkPrepared(call("claim", { sponsored: false }), ["claim"], { ...guard, allowFees: true })).not.toThrow();
     expect(() => checkPrepared(call("claim", { sponsored: false, energy: 90_000n }), ["claim"], { ...guard, allowFees: true })).toThrow(/energy/);
+  });
+});
+
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+const SIG = "ab".repeat(64);
+
+describe("what a prepared call is for", () => {
+  it("signs a claim only for the bounty and agent asked for", () => {
+    const tx = callWith("claim", encodeClaim({ id: 7n, agent: 1418n, attestationExpiry: 99n, signature: SIG }));
+    expect(() => checkPrepared(tx, ["claim"], guard, { entrypoint: "claim", bountyId: 7n, agent: 1418n })).not.toThrow();
+    expect(() => checkPrepared(tx, ["claim"], guard, { entrypoint: "claim", bountyId: 9n, agent: 1418n })).toThrow(RailViolation);
+    expect(() => checkPrepared(tx, ["claim"], guard, { entrypoint: "claim", bountyId: 7n, agent: null })).toThrow(RailViolation);
+  });
+
+  it("signs a submit or a contest entry only with the hash of the work it was given", () => {
+    expect(() => checkPrepared(callWith("submit", encodeIdHash(7n, sha("work"))), ["submit"], guard, { entrypoint: "submit", bountyId: 7n, workHash: sha("work") })).not.toThrow();
+    expect(() => checkPrepared(callWith("submit", encodeIdHash(7n, sha("other"))), ["submit"], guard, { entrypoint: "submit", bountyId: 7n, workHash: sha("work") })).toThrow(
+      RailViolation,
+    );
+    const enter = callWith("enter", encodeEnter({ id: 8n, agent: 1418n, workHash: sha("work"), attestationExpiry: 5n, signature: SIG }));
+    expect(() => checkPrepared(enter, ["enter"], guard, { entrypoint: "enter", bountyId: 8n, agent: 1418n, workHash: sha("work") })).not.toThrow();
+    expect(() => checkPrepared(enter, ["enter"], guard, { entrypoint: "enter", bountyId: 8n, agent: 1418n, workHash: sha("other") })).toThrow(RailViolation);
+  });
+
+  it("signs accept, cancel and award only for the bounty and entry asked for", () => {
+    expect(() => checkPrepared(callWith("accept", encodeU64(9n)), ["accept"], guard, { entrypoint: "accept", bountyId: 7n })).toThrow(RailViolation);
+    expect(() => checkPrepared(callWith("cancel", encodeU64(7n)), ["cancel"], guard, { entrypoint: "cancel", bountyId: 7n })).not.toThrow();
+    expect(() => checkPrepared(callWith("award", encodeIdEntry(7n, 2)), ["award"], guard, { entrypoint: "award", bountyId: 7n, entryId: 1 })).toThrow(RailViolation);
+  });
+
+  it("signs a reject only with the hash of its reason, as the board computes it", () => {
+    expect(reasonHash("too short")).toBe(sha(JSON.stringify({ reason: "too short" })));
+    expect(reasonHash("x".repeat(2500))).toBe(sha(JSON.stringify({ reason: "x".repeat(2000) })));
+    expect(() => checkPrepared(callWith("reject", encodeIdHash(7n, reasonHash("a"))), ["reject"], guard, { entrypoint: "reject", bountyId: 7n, reasonHash: reasonHash("b") })).toThrow(
+      RailViolation,
+    );
+  });
+
+  it("signs a post only with the kind, reward, deadline, agent and spec hash asked for", () => {
+    const p = { kind: "Exclusive" as const, posterAgent: 1418n, specHash: sha("spec"), reward: 1_000_000n, deadline: 1_800_000_000_000n };
+    const tx = callWith("post", encodePost({ ...p, attestationExpiry: 3n, signature: SIG }));
+    expect(() => checkPrepared(tx, ["post"], guard, { entrypoint: "post", ...p })).not.toThrow();
+    for (const wrong of [{ reward: 9_000_000n }, { deadline: 1n }, { specHash: sha("other") }, { kind: "Contest" as const }, { posterAgent: null }]) {
+      expect(() => checkPrepared(tx, ["post"], guard, { entrypoint: "post", ...p, ...wrong })).toThrow(RailViolation);
+    }
+  });
+
+  it("refuses an expectation for another action than the call's", () => {
+    expect(() => checkPrepared(callWith("claim", encodeU64(7n)), ["claim"], guard, { entrypoint: "accept", bountyId: 7n })).toThrow(RailViolation);
+  });
+});
+
+describe("spec hash", () => {
+  const s = { title: "  Page facts  ", description: "D", taskKind: "page-facts", input: { url: "https://example.org" }, kind: "Exclusive" as const, reward: "1", deadline: 1_800_000_000_000 };
+  const body = (agent: string) =>
+    `{"title":"Page facts","description":"D","taskKind":"page-facts","input":{"url":"https://example.org"},"kind":"Exclusive","reward":"1","rewardToken":"EUDemo","deadline":1800000000000,"poster":"${ME}","posterAgent":${agent}}`;
+
+  it("hashes the bytes the board commits to, with the title trimmed", () => {
+    expect(specHashFor(s, ME, 1418n, "EUDemo")).toBe(sha(body('"1418"')));
+    expect(specHashFor(s, ME, null, "EUDemo")).toBe(sha(body("null")));
+  });
+});
+
+describe("agent token id", () => {
+  it("reads token 1418 from the reference agent's badge", () => {
+    expect(agentTokenId("JyP9WVTtVnRuL8JUmLKZH", { index: 12802n, subindex: 0n })).toBe(1418n);
+  });
+
+  it("refuses a badge that is not a token of the configured registry", () => {
+    expect(() => agentTokenId("JyP9WVTtVnRuL8JUmLKZH", { index: 12803n, subindex: 0n })).toThrow(/registry/);
   });
 });
 
