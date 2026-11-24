@@ -1,19 +1,19 @@
-import { AccountAddress, buildBasicAccountSigner } from "@concordium/web-sdk";
 import { parseTokenAmount } from "@deplace/shared";
-import { CONCORDIUM_TESTNET_CAIP2 } from "@x402/concordium";
-import { ExactConcordiumScheme } from "@x402/concordium/exact/client";
-import { wrapFetchWithPayment } from "@x402/fetch";
 import { isRetryable, oneLine } from "./board-client.js";
 import type { ChainReads } from "./chain.js";
 import type { SpendBudget } from "./rails/budget.js";
 import { RailViolation, type GuardOptions } from "./rails/guard.js";
-import { guardedPaymentClient, type GuardedPaymentOptions } from "./rails/payments.js";
+import type { GuardedPaymentOptions } from "./rails/payments.js";
+import type { PendingStore } from "./rails/pending.js";
 import type { AgentKeys } from "./signer.js";
-import { login, signAndSubmit, type Board } from "./worker.js";
+import { directSend, payStep, posterActionStep, postStep, type PayContext, type PostContext } from "./steps.js";
+import { login, type Board } from "./worker.js";
 
 export interface PosterOptions {
   board: Board;
   badge: string;
+  /** The agent's token id, read from its badge: the agent its posts must name. */
+  agentTokenId: bigint;
   keys: AgentKeys;
   /** The agent's own chain reads: the payee, the reward and the escrow account come from the contract, not the board. */
   chain: ChainReads;
@@ -22,6 +22,10 @@ export interface PosterOptions {
   /** Caps each reward and the daily total; every payment is booked against the bounty's committed reward. */
   budget: SpendBudget;
   token: { id: string; decimals: number };
+  /** The board's origin: the agent pays only there. */
+  boardOrigin: string;
+  /** Payments on record until the board answers. */
+  pending: PendingStore;
   /** Reward as a decimal amount of the token. Default "1". */
   reward?: string;
   /** Escrow the reward over x402 right after posting, instead of paying the worker on delivery. */
@@ -31,24 +35,6 @@ export interface PosterOptions {
   /** Test seams: the fetch the x402 client wraps, and the scheme that signs payments. */
   fetch?: typeof fetch;
   scheme?: GuardedPaymentOptions["scheme"];
-}
-
-/**
- * Pays over x402 with the guarded client: only `expected.payTo`, only `expected.amount`,
- * booked against the bounty's commitment before it is signed.
- */
-async function pay(o: PosterOptions, session: string, bountyId: bigint, url: string, method: "GET" | "POST", expected: { payTo: string; amount: bigint }) {
-  const client = guardedPaymentClient({
-    network: CONCORDIUM_TESTNET_CAIP2 as `${string}:${string}`,
-    scheme: o.scheme ?? new ExactConcordiumScheme({ accountAddress: AccountAddress.fromBase58(o.keys.address), signer: buildBasicAccountSigner(o.keys.privateKeyHex) }),
-    asset: o.token.id,
-    maxAtomic: o.budget.limits.maxPerBounty,
-    expected: () => ({ payTo: expected.payTo, amount: expected.amount.toString() }),
-    book: (amount) => o.budget.reserve(`bounty:${bountyId}`, amount),
-  });
-  const res = await wrapFetchWithPayment(o.fetch ?? fetch, client)(url, { method, headers: { authorization: `Bearer ${session}` } });
-  if (!res.ok) throw new Error(`x402 payment failed: HTTP ${res.status} ${await res.text()}`);
-  return res;
 }
 
 /**
@@ -64,41 +50,27 @@ export async function postAndPay(o: PosterOptions) {
   const units = parseTokenAmount(reward, o.token.decimals);
   o.budget.check(units); // before anything is posted
 
-  const session = await login(o);
+  const session = (await login(o, o.agentTokenId)).token;
   log(`posting a${o.escrow ? "n escrowed" : " not-funded"} page-facts bounty for ${reward} ${o.token.id}`);
-  const posted = await signAndSubmit(
-    o,
-    await board.call("prepare_post", {
-      session,
-      title: "Page facts for example.org",
-      description: "Fetch https://example.org and report its title, visible word count and the SHA-256 of the body.",
-      task_kind: "page-facts",
-      input: { url: "https://example.org" },
-      kind: "Exclusive",
-      reward,
-      deadline: Date.now() + 2 * 60 * 60_000,
-    }),
-    ["post"],
-  );
-  const idText = posted.events.find((e) => e.type === "Posted")?.id;
-  if (idText === undefined) throw new Error("post went through but no Posted event came back");
-  const id = BigInt(idText);
-  // Committed as soon as it is posted: it counts against the daily budget even if the agent stops here.
-  o.budget.commit(`bounty:${id}`, units);
-
-  const onChain = await o.chain.bounty(id);
-  if (onChain.poster !== o.keys.address || onChain.reward !== units) {
-    throw new RailViolation(
-      `bounty ${id} on chain is not what the agent posted (poster ${onChain.poster}, reward ${onChain.reward} instead of ${units}); stopping, cancel it if it is yours`,
-    );
-  }
+  const c: PostContext = { board, session, agent: o.agentTokenId, send: directSend(o), keys: o.keys, chain: o.chain, budget: o.budget, token: o.token };
+  const { id } = await postStep(c, {
+    title: "Page facts for example.org",
+    description: "Fetch https://example.org and report its title, visible word count and the SHA-256 of the body.",
+    taskKind: "page-facts",
+    input: { url: "https://example.org" },
+    kind: "Exclusive",
+    reward,
+    deadline: Date.now() + 2 * 60 * 60_000,
+  });
+  const idText = id.toString();
+  const pay: PayContext = { session, keys: o.keys, budget: o.budget, token: o.token, boardOrigin: o.boardOrigin, pending: o.pending, fetch: o.fetch, scheme: o.scheme };
 
   if (o.escrow) {
     // The board also prepares a fallback transfer; the agent never signs it and pays only through its own client.
     const fund = await board.call<{ x402: { url: string } }>("prepare_fund", { session, bounty_id: idText });
     const escrow = await o.chain.escrowAccount();
     log(`escrowing the reward over x402 to ${escrow}, the escrow account on chain`);
-    const res = await pay(o, session, id, fund.x402.url, "POST", { payTo: escrow, amount: onChain.reward });
+    const res = await payStep(pay, { bountyId: id, url: fund.x402.url, method: "POST", expected: { payTo: escrow, amount: units }, purpose: "fund" });
     const body = (await res.json()) as { funded: { confirmed: boolean; reason?: string }; payment: { link: string } };
     log(`  ${body.payment.link}`);
     if (!body.funded.confirmed) throw new Error(`the deposit for bounty ${id} settled but the board did not confirm it: ${body.funded.reason}`);
@@ -118,7 +90,7 @@ export async function postAndPay(o: PosterOptions) {
     await new Promise((r) => setTimeout(r, o.pollMs ?? 15_000));
   }
   log(`accepting bounty ${id}`);
-  await signAndSubmit(o, await board.call("prepare_accept", { session, bounty_id: idText }), ["accept"]);
+  await posterActionStep(c, "accept", idText);
 
   const work = await board.call<{ paymentRequired: boolean; url?: string; items?: unknown }>("fetch_work", { session, bounty_id: idText });
   if (!work.paymentRequired) {
@@ -130,7 +102,7 @@ export async function postAndPay(o: PosterOptions) {
   const payee = await o.chain.payee(accepted);
   if (!payee) throw new RailViolation(`bounty ${id} is ${accepted.status.type} on chain, so nobody is owed its reward yet`);
   log(`paying ${payee}, the worker on chain, on delivery over x402`);
-  const res = await pay(o, session, id, work.url!, "GET", { payTo: payee, amount: accepted.reward });
+  const res = await payStep(pay, { bountyId: id, url: work.url!, method: "GET", expected: { payTo: payee, amount: accepted.reward }, purpose: "deliver" });
   const body = (await res.json()) as { items: unknown; payment: { link: string } };
   log(`paid: ${body.payment.link}`);
   log(JSON.stringify(body.items, null, 2));

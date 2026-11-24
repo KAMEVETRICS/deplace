@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   AccountAddress,
@@ -12,6 +12,7 @@ import {
   TransactionExpiry,
   buildBasicAccountSigner,
 } from "@concordium/web-sdk";
+import { encodeClaim, encodeEnter, encodeIdHash } from "@deplace/shared";
 import { BoardToolError } from "../src/board-client.js";
 import { RailViolation } from "../src/rails/guard.js";
 import type { AgentKeys } from "../src/signer.js";
@@ -29,15 +30,18 @@ const poster = keys(2).address;
 const DEPLACE = { index: 13001n, subindex: 0n };
 const SPONSOR = AccountAddress.fromBuffer(new Uint8Array(32).fill(3).buffer);
 const metaFor = (sender: string) => ({ sender: AccountAddress.fromBase58(sender), nonce: SequenceNumber.create(1), expiry: TransactionExpiry.futureMinutes(5) });
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+/** The board's attestation signature in a claim or entry: the agent never compares it. */
+const SIG = "11".repeat(64);
 
 /** A sponsored Deplace contract call for `sender`, as the board's prepare_* tools return. */
-function prepared(sender: string, entrypoint: string) {
+function prepared(sender: string, entrypoint: string, parameter: Uint8Array) {
   const tx = Transaction.updateContract(
     {
       amount: CcdAmount.zero(),
       address: ContractAddress.create(DEPLACE.index, DEPLACE.subindex),
       receiveName: ReceiveName.fromString(`deplace.${entrypoint}`),
-      message: Parameter.fromHexString("00"),
+      message: Parameter.fromBuffer(parameter.slice().buffer),
     },
     Energy.create(30_000n),
   )
@@ -64,13 +68,17 @@ const handler: TaskHandler = {
 
 /**
  * A scripted board: records calls; status walks Claimed -> Submitted -> Accepted -> Paid.
- * `fail` queues errors a tool throws, one per call, before it answers normally.
+ * `fail` queues errors a tool throws, one per call, before it answers normally. Its prepared
+ * calls carry the parameters a real board would encode; `claimFor` makes it prepare the claim
+ * of another bounty, and `loginTokenId` makes it log the badge in as another agent.
  */
-function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: string[]; compromised?: boolean; fail?: Record<string, Error[]> } = {}) {
+function board(
+  over: { bounties?: unknown[]; eligible?: boolean; statuses?: string[]; compromised?: boolean; fail?: Record<string, Error[]>; claimFor?: string; loginTokenId?: string } = {},
+) {
   const calls: { name: string; args: any }[] = [];
   const statuses = [...(over.statuses ?? ["Submitted", "Accepted", "Paid"])];
   const b: Board = {
-    async call(name: string, args: Record<string, unknown>): Promise<any> {
+    async call(name: string, args: Record<string, any>): Promise<any> {
       calls.push({ name, args });
       const failure = over.fail?.[name]?.shift();
       if (failure) throw failure;
@@ -80,7 +88,7 @@ function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: stri
         case "request_challenge":
           return { nonce: "n1", message: "Deplace/v1/login:n1" };
         case "login":
-          return { token: "tok", identity: { account: me.address } };
+          return { token: "tok", identity: { account: me.address, tokenId: over.loginTokenId ?? "1418" } };
         case "list_bounties":
           return {
             bounties: over.bounties ?? [
@@ -90,9 +98,14 @@ function board(over: { bounties?: unknown[]; eligible?: boolean; statuses?: stri
             ],
           };
         case "prepare_claim":
-          return over.compromised ? drain(me.address) : prepared(me.address, "claim");
-        case "prepare_submit":
-          return prepared(me.address, args.bounty_id === "8" ? "enter" : "submit");
+          if (over.compromised) return drain(me.address);
+          return prepared(me.address, "claim", encodeClaim({ id: BigInt(over.claimFor ?? args.bounty_id), agent: 1418n, attestationExpiry: 1n, signature: SIG }));
+        case "prepare_submit": {
+          const id = BigInt(args.bounty_id);
+          return args.bounty_id === "8"
+            ? prepared(me.address, "enter", encodeEnter({ id, agent: 1418n, workHash: sha(args.full), attestationExpiry: 1n, signature: SIG }))
+            : prepared(me.address, "submit", encodeIdHash(id, sha(args.full)));
+        }
         case "submit_signed":
           return { txHash: "aa".repeat(32), link: "https://ccdexplorer.io/testnet/transaction/" + "aa".repeat(32), events: [] };
         case "get_status":
@@ -111,6 +124,7 @@ const opts = (b: Board, log: string[] = []) => ({
   keys: me,
   handlers: [handler],
   guard: { account: me.address, contract: DEPLACE, allowFees: false },
+  agentTokenId: 1418n,
   log: (m: string) => log.push(m),
   pollMs: 0,
   sleep: async () => {},
@@ -146,6 +160,18 @@ describe("reference worker", () => {
     const { b, calls } = board({ compromised: true });
     await expect(workOne(opts(b))).rejects.toBeInstanceOf(RailViolation);
     expect(calls.map((c) => c.name)).not.toContain("submit_signed");
+  });
+
+  it("refuses a claim prepared for another bounty than the one it picked", async () => {
+    const { b, calls } = board({ claimFor: "6" }); // prepare_claim encodes bounty 6 while the agent picked 5
+    await expect(workOne(opts(b))).rejects.toBeInstanceOf(RailViolation);
+    expect(calls.map((c) => c.name)).not.toContain("submit_signed");
+  });
+
+  it("refuses a session the board opened for another agent", async () => {
+    const { b, calls } = board({ loginTokenId: "7" });
+    await expect(workOne(opts(b))).rejects.toBeInstanceOf(RailViolation);
+    expect(calls.map((c) => c.name)).not.toContain("prepare_claim");
   });
 
   it("enters contests without claiming", async () => {

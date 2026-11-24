@@ -332,6 +332,24 @@ describe("guarded x402 client", () => {
     await expect(plain.createPaymentPayload(required({}) as never)).rejects.toThrow();
   });
 
+  it("stops a payment and gives its booking back when onCreated refuses it", async () => {
+    const budget = new SpendBudget(null, { maxPerBounty: 5_000_000n, dailyCap: 5_000_000n });
+    budget.commit("bounty:1", 2_000_000n);
+    const refusing = guardedPaymentClient({
+      network,
+      scheme: fakeScheme as never,
+      asset: "EUDemo",
+      maxAtomic: 5_000_000n,
+      expected: () => ({ payTo: addr(7), amount: "2000000" }),
+      book: (amount) => budget.reserve("bounty:1", amount),
+      onCreated: () => {
+        throw new RailViolation("cannot read the payment back");
+      },
+    });
+    await expect(refusing.createPaymentPayload(required({}) as never)).rejects.toThrow(/cannot read the payment back/);
+    expect(() => budget.reserve("bounty:1", 2_000_000n)).not.toThrow();
+  });
+
   it("refuses a payment above the per-payment cap even when it was expected", async () => {
     await expect(client({ payTo: addr(7), amount: "6000000" }).createPaymentPayload(required({ amount: "6000000" }) as never)).rejects.toThrow();
   });

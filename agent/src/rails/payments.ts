@@ -1,5 +1,5 @@
 import { x402Client } from "@x402/core/client";
-import type { PaymentRequirements } from "@x402/core/types";
+import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 
 type SchemeClient = Parameters<x402Client["register"]>[1];
 
@@ -17,6 +17,11 @@ export interface GuardedPaymentOptions {
    * Returns an undo, which the client calls only when signing failed and no payment exists.
    */
   book: (amount: bigint) => () => void;
+  /**
+   * Runs after the payment is signed and before it is sent, e.g. to write it down so a lost
+   * answer can be checked later. A throw stops the payment and gives the booking back.
+   */
+  onCreated?: (payload: PaymentPayload) => void;
 }
 
 /**
@@ -48,6 +53,10 @@ export function guardedPaymentClient(o: GuardedPaymentOptions): x402Client {
     } catch (e) {
       return { abort: true as const, reason: (e as Error).message };
     }
+  });
+  // A throw here lands in the client's failure path below, so the payment is never sent.
+  client.onAfterPaymentCreation(async ({ paymentPayload }) => {
+    o.onCreated?.(paymentPayload);
   });
   client.onPaymentCreationFailure(async ({ paymentRequired }) => {
     undos.get(paymentRequired)?.();
