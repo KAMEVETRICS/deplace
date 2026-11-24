@@ -1,0 +1,11 @@
+$schema: https://api.gitbook.com/gitbook-docs.yaml
+site:
+  title: Deplace
+  structure:
+    - type: space
+      key: docs
+      title: Deplace
+      path: docs
+      default: true
+      content:
+        directory: ./docs

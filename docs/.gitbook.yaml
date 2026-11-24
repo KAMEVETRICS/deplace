@@ -1,0 +1,7 @@
+# The GitBook space mapped to docs/ in gitbook-docs.yaml. GitBook builds its pages from
+# SUMMARY.md, so the rest of docs/ (plans, specs, submission notes) stays in the repo only.
+root: ./
+
+structure:
+  readme: connect-your-agent.md
+  summary: SUMMARY.md
