@@ -176,12 +176,23 @@ export async function registerAgent(o: RegisterOptions): Promise<RegisterOutcome
   return { step: "badge", badge, valid: verdict.badge_valid === true, issues, tokenId };
 }
 
-/** Signs a build_* result as the owner and waits for finalization; the owner pays this one-time fee in CCD. */
-export function chainSubmitter(keys: AgentKeys, grpc: { host: string; port: number }, log: (m: string) => void = (m) => console.log(m)): RegisterOptions["submit"] {
+type SubmitClient = Pick<ConcordiumGRPCNodeClient, "getNextAccountNonce" | "sendTransaction" | "waitForTransactionFinalization">;
+
+/**
+ * Signs a build_* result as the owner and waits for finalization; the owner pays this one-time fee
+ * in CCD. `onSent` gets the transaction's hash before it leaves, so a lost answer is never taken
+ * for a registration that didn't happen. `client` is for tests.
+ */
+export function chainSubmitter(
+  keys: AgentKeys,
+  grpc: { host: string; port: number },
+  log: (m: string) => void = (m) => console.log(m),
+  client?: SubmitClient,
+): RegisterOptions["submit"] {
   return async (built, onSent = () => {}) => {
-    const client = new ConcordiumGRPCNodeClient(grpc.host, grpc.port, credentials.createSsl(), { timeout: 30_000 });
+    const node = client ?? new ConcordiumGRPCNodeClient(grpc.host, grpc.port, credentials.createSsl(), { timeout: 30_000 });
     const sender = AccountAddress.fromBase58(keys.address);
-    const { nonce } = await client.getNextAccountNonce(sender);
+    const { nonce } = await node.getNextAccountNonce(sender);
     const tx = Transaction.updateContract(
       {
         amount: CcdAmount.zero(),
@@ -193,10 +204,13 @@ export function chainSubmitter(keys: AgentKeys, grpc: { host: string; port: numb
     )
       .addMetadata({ sender, nonce, expiry: TransactionExpiry.futureMinutes(5) })
       .build();
-    const hash = await client.sendTransaction(await Transaction.signAndFinalize(tx, keys.signer));
-    onSent(TransactionHash.toHexString(hash));
-    log(`  https://ccdexplorer.io/testnet/transaction/${TransactionHash.toHexString(hash)}`);
-    const out = (await client.waitForTransactionFinalization(hash)).summary as { transactionType?: string; rejectReason?: unknown };
+    const signed = await Transaction.signAndFinalize(tx, keys.signer);
+    // The node names a transaction by the SHA-256 of its block item (the rule in server/src/chain/operator.ts).
+    const hash = sha256(Buffer.from(Transaction.serializeBlockItem(signed)));
+    onSent(hash); // written down before it leaves
+    await node.sendTransaction(signed);
+    log(`  https://ccdexplorer.io/testnet/transaction/${hash}`);
+    const out = (await node.waitForTransactionFinalization(TransactionHash.fromHexString(hash))).summary as { transactionType?: string; rejectReason?: unknown };
     if (out.transactionType === "failed") throw new Error(`${built.receive_name} failed: ${JSON.stringify(out.rejectReason, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
   };
 }

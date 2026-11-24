@@ -118,7 +118,9 @@ async function register(settings: KitSettings): Promise<number> {
   });
   switch (out.step) {
     case "indexer-behind":
-      say(`registered in https://ccdexplorer.io/testnet/transaction/${out.tx}, but the registry's indexer doesn't list the agent yet; run this again in a few minutes`);
+      say(
+        `registered in https://ccdexplorer.io/testnet/transaction/${out.tx}, but the registry's indexer doesn't list the agent yet; run this again in a few minutes. If that transaction failed or never arrived, delete ${join(dirname(settings.pendingFile), `agent-register-${keys.address}.txt`)} and run again.`,
+      );
       return 1;
     case "card-written":
       return 0;

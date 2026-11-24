@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { REFERENCE_AGENT_CARD, registerAgent, type BuiltTx, type RegisterOptions } from "../src/registry.js";
+import { AccountAddress, SequenceNumber, buildBasicAccountSigner } from "@concordium/web-sdk";
+import { REFERENCE_AGENT_CARD, chainSubmitter, registerAgent, type BuiltTx, type RegisterOptions } from "../src/registry.js";
 
 const OWNER = "4S3UrfhQbefa5SmR9qFsfTdVqYpSN9s4DVcmyVjTbNkoDtMxGs";
 const URL_ = "https://raw.githubusercontent.com/someone/agent/main/card.json";
@@ -111,6 +112,22 @@ describe("registering an agent", () => {
   it("reports an invalid badge with the registry's reasons", async () => {
     const r = setup({ agents: [[mine({ metadata_hash_hex: sha(CARD_JSON) })]], cardOnDisk: CARD_JSON, served: CARD_JSON, badgeValid: false });
     expect(await registerAgent(r.o)).toMatchObject({ step: "badge", valid: false, issues: ["card hash does not match"] });
+  });
+
+  it("writes the register transaction down before it leaves, so a lost answer never mints a second agent", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const privateKeyHex = privateKey.export({ format: "der", type: "pkcs8" }).subarray(16).toString("hex");
+    const keys = { address: AccountAddress.fromBuffer(new Uint8Array(32).fill(1).buffer).address, privateKeyHex, signer: buildBasicAccountSigner(privateKeyHex) };
+    const node = {
+      getNextAccountNonce: async () => ({ nonce: SequenceNumber.create(1), allFinal: true }),
+      sendTransaction: async () => {
+        throw new TypeError("fetch failed"); // the answer is lost: the transaction may or may not have left
+      },
+    };
+    const recorded: string[] = [];
+    const submit = chainSubmitter(keys, { host: "unused", port: 1 }, () => {}, node as never);
+    await expect(submit(built("cis8004.register"), (tx) => recorded.push(tx))).rejects.toThrow(/fetch failed/);
+    expect(recorded).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/)]);
   });
 
   it("asks the registry for the reference agent's card with the same input as before", async () => {
