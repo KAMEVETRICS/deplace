@@ -48,6 +48,8 @@ export function isTransportError(e: unknown): boolean {
   if (e instanceof McpError) return e.code === ErrorCode.ConnectionClosed || e.code === ErrorCode.RequestTimeout;
   const err = e as { message?: unknown; code?: unknown; cause?: { code?: unknown; message?: unknown } } | null;
   if (e instanceof TypeError && (/fetch failed/i.test(e.message) || err?.cause !== undefined)) return true;
+  // The Concordium node over gRPC: unreachable, or too slow to answer.
+  if (err?.code === "UNAVAILABLE" || err?.code === 14 || err?.code === "DEADLINE_EXCEEDED" || err?.code === 4) return true;
   const text = [err?.message, err?.code, err?.cause?.code, err?.cause?.message].filter((x): x is string => typeof x === "string").join(" ");
   return NETWORK_CODES.test(text);
 }

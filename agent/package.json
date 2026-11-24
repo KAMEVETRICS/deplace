@@ -6,6 +6,7 @@
   "description": "Reference worker agent for Deplace",
   "scripts": {
     "start": "tsx src/main.ts",
+    "kit": "node bin/kit.mjs",
     "register": "tsx src/register.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"

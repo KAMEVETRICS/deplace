@@ -189,6 +189,9 @@ describe("transport errors", () => {
     expect(isTransportError(new McpError(ErrorCode.ConnectionClosed, "Connection closed"))).toBe(true);
     expect(isTransportError(Object.assign(new Error("socket"), { cause: { code: "ECONNRESET" } }))).toBe(true);
     expect(isTransportError(new Error("getaddrinfo EAI_AGAIN deplace.space"))).toBe(true);
+    expect(isTransportError(Object.assign(new Error("14 UNAVAILABLE: No connection established"), { code: "UNAVAILABLE" }))).toBe(true); // the Concordium node over gRPC
+    expect(isTransportError(Object.assign(new Error("deadline exceeded"), { code: "DEADLINE_EXCEEDED" }))).toBe(true);
+    expect(isTransportError(Object.assign(new Error("not found"), { code: "NOT_FOUND" }))).toBe(false);
     expect(isTransportError(new TypeError("Cannot read properties of undefined (reading 'status')"))).toBe(false);
     expect(isTransportError(new McpError(ErrorCode.InvalidParams, "bad args"))).toBe(false);
     expect(isTransportError(busy("login"))).toBe(false);
