@@ -21,7 +21,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { encodeClaim, encodeEnter, encodeIdEntry, encodeIdHash, encodePost, encodeU64, parseTokenAmount, txLink, type BoardEvent, type Bounty, type BountyKind, type BountyStatus, type Funding } from "@deplace/shared";
 import { encodePaymentRequiredHeader } from "@x402/core/http";
-import { BoardToolError } from "../../src/board-client.js";
+import { BoardToolError, type BoardConnection } from "../../src/board-client.js";
 import type { KitChain, TxOutcome } from "../../src/chain.js";
 import { BoardLink } from "../../src/kit/board-link.js";
 import { hireTools } from "../../src/kit/hire-tools.js";
@@ -33,7 +33,6 @@ import { reasonHash } from "../../src/rails/guard.js";
 import { AccountLock } from "../../src/rails/lock.js";
 import { PendingStore } from "../../src/rails/pending.js";
 import { transactionHash, type AgentKeys } from "../../src/signer.js";
-import type { Board } from "../../src/worker.js";
 
 export const addr = (fill: number) => AccountAddress.fromBuffer(new Uint8Array(32).fill(fill).buffer).address;
 export function testKeys(fill: number): AgentKeys {
@@ -410,15 +409,17 @@ export function world(o: WorldOptions = {}) {
     },
   };
 
-  const connection: Board & { close(): Promise<void> } = {
-    async call(name: string, args: Record<string, any>): Promise<any> {
-      state.calls.push({ name, args });
-      const failure = o.fail?.[name]?.shift();
-      if (failure) throw failure;
-      const answer = o.replace?.[name] ?? tools[name];
-      if (!answer) throw new Error(`unexpected tool ${name}`);
-      return wire(answer(args)); // as the board's JSON over MCP: bigints become strings
-    },
+  async function call(name: string, args: Record<string, any>): Promise<any> {
+    state.calls.push({ name, args });
+    const failure = o.fail?.[name]?.shift();
+    if (failure) throw failure;
+    const answer = o.replace?.[name] ?? tools[name];
+    if (!answer) throw new Error(`unexpected tool ${name}`);
+    return wire(answer(args)); // as the board's JSON over MCP: bigints become strings
+  }
+  const connection: BoardConnection = {
+    call: (name, args) => call(name, args),
+    callWithin: (name, args) => call(name, args),
     async close() {},
   };
 

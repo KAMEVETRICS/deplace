@@ -98,7 +98,7 @@ export function hireTools(d: KitDeps): HireTools {
       if (earlier && earlier.landed) return { bountyId: id, link: earlier.link, message: `an earlier ${action} of this bounty went through`, next };
       const r = await d.link.withSession((session) => step(stepContext(d, deadline, session), id), deadline);
       return { bountyId: id, done: action, txHash: r.txHash, link: r.link, next };
-    });
+    }, deadline);
   }
 
   return {
@@ -163,7 +163,7 @@ export function hireTools(d: KitDeps): HireTools {
         }
         out.next = a.escrow ? "wait for a worker; check_status shows submissions" : "wait for a worker; once work is submitted, accept it, and get_work pays the worker";
         return out;
-      });
+      }, deadline);
     },
 
     async fund_bounty(a) {
@@ -172,7 +172,7 @@ export function hireTools(d: KitDeps): HireTools {
       return d.relay.turn(async () => {
         const out = await d.link.withSession((session) => fund(id, session, deadline), deadline);
         return { bountyId: id.toString(), ...out, next: "wait for a worker; check_status shows submissions" };
-      });
+      }, deadline);
     },
 
     accept: (a) => posterAction("accept", a.bounty_id, (c, id) => posterActionStep(c, "accept", id), "get_work returns the delivered work"),
@@ -202,6 +202,7 @@ export function hireTools(d: KitDeps): HireTools {
           const body = (await res.json()) as { items?: unknown; payment?: { link?: string } };
           return { bountyId: id, items: body.items, paidTo: payee, paymentLink: body.payment?.link ?? null, note: OTHER_PEOPLES_TEXT, next: "done: the worker is paid" };
         }, deadline),
+        deadline,
       );
     },
   };

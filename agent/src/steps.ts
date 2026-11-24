@@ -19,6 +19,9 @@ import { signAndSubmit, type Board, type Relayed, type WorkerOptions } from "./w
 
 type Prepared = { prepared: { txJson: string; notice?: string } };
 
+/** How long one x402 request may take; the paid one waits for the board to settle the payment on chain. */
+const PAY_REQUEST_TIMEOUT_MS = 60_000;
+
 /** onSigned runs after signing and before sending; it returns the budget ref it committed, if any (the relay keeps it with the pending record). */
 export interface SendStep {
   action: string;
@@ -191,8 +194,11 @@ export async function payStep(
     book: (amount) => c.budget.reserve(ref, amount),
     onCreated: (payload) => c.pending.add(pendingPayment(c.keys.address, payload, o, ref)),
   });
-  const res = await wrapFetchWithPayment(c.fetch ?? fetch, client)(o.url, { method: o.method, headers: { authorization: `Bearer ${c.session}` } });
-  if (!res.ok) throw new Error(`x402 payment failed: HTTP ${res.status} ${await res.text()}`);
+  // Each request gets a time limit: a half-open socket would otherwise hold the payment for minutes.
+  const base = c.fetch ?? fetch;
+  const timed: typeof fetch = (input, init) => base(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(PAY_REQUEST_TIMEOUT_MS) });
+  const res = await wrapFetchWithPayment(timed, client)(o.url, { method: o.method, headers: { authorization: `Bearer ${c.session}` } });
+  if (!res.ok) throw new Error(`x402 payment failed: HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 200)}`);
   c.pending.remove((r) => r.kind === "payment" && r.bountyId === o.bountyId.toString() && r.purpose === o.purpose);
   return res;
 }

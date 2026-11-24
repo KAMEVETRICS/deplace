@@ -1,6 +1,6 @@
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { BoardToolError, isRetryable } from "../board-client.js";
+import { BoardToolError, isRetryable, type BoardConnection } from "../board-client.js";
 import { RailViolation } from "../rails/guard.js";
 import type { AgentKeys } from "../signer.js";
 import { login, type Board, type Relayed } from "../worker.js";
@@ -15,7 +15,7 @@ export interface BoardConfigView {
   faucetUrl: string | null;
 }
 
-type Connection = Board & { close(): Promise<void> };
+type Connection = BoardConnection;
 
 export interface BoardLinkOptions {
   /** connectBoard(BOARD_MCP_URL) in production. */
@@ -35,6 +35,12 @@ export interface BoardLinkOptions {
 /** How long a tool call may spend retrying before anything is signed. */
 const RETRY_WINDOW_MS = 30_000;
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000];
+/** The least time one attempt gets, even at the end of a window. */
+const MIN_ATTEMPT_MS = 1_000;
+/** submit_signed waits for finalization; past this, its answer counts as lost. */
+const RELAY_TIMEOUT_MS = 45_000;
+/** A connection replaced after a failure is closed only this much later, so calls still on it can finish. */
+const RETIRED_CLOSE_MS = 60_000;
 const NETWORK_CODES = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/;
 
 /**
@@ -44,6 +50,8 @@ const NETWORK_CODES = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/;
  */
 export function isTransportError(e: unknown): boolean {
   if (e instanceof BoardToolError || e instanceof KitError || e instanceof RailViolation) return false;
+  const name = (e as { name?: unknown } | null)?.name;
+  if (name === "TimeoutError" || name === "AbortError") return true; // a request that ran out of time
   if (e instanceof StreamableHTTPError) return true;
   if (e instanceof McpError) return e.code === ErrorCode.ConnectionClosed || e.code === ErrorCode.RequestTimeout;
   const err = e as { message?: unknown; code?: unknown; cause?: { code?: unknown; message?: unknown } } | null;
@@ -99,16 +107,22 @@ export class BoardLink implements Board {
     return this.connection;
   }
 
-  /** Forgets a connection that failed, so the next call connects again. */
-  private async drop() {
-    const c = this.connection;
-    this.connection = null;
-    if (!c) return;
-    try {
-      await c.close();
-    } catch (e) {
-      this.o.log(`closing the broken connection failed too (${describe(e)})`); // it is gone either way
-    }
+  /**
+   * Stops using a connection that failed, so the next call connects again. Only that connection:
+   * a late failure on an old one leaves a newer one alone. It is closed a minute later, so calls
+   * still on it (a submit_signed waiting for finalization) aren't cut off.
+   */
+  private retire(c: Connection) {
+    if (this.connection === c) this.connection = null;
+    const timer = setTimeout(() => {
+      c.close().catch((e: unknown) => this.o.log(`closing an old connection failed (${describe(e)})`)); // it is no longer used either way
+    }, RETIRED_CLOSE_MS);
+    timer.unref?.();
+  }
+
+  /** Time left for one attempt before `deadline`. */
+  private within(deadline: number): number {
+    return Math.max(MIN_ATTEMPT_MS, deadline - this.now());
   }
 
   private async retrying<T>(what: string, attempt: () => Promise<T>, deadline: number): Promise<T> {
@@ -118,7 +132,6 @@ export class BoardLink implements Board {
       } catch (e) {
         const transport = isTransportError(e);
         if (!transport && !isRetryable(e)) throw e;
-        if (transport) await this.drop();
         const left = deadline - this.now();
         if (left <= 0) {
           const why = transport ? `could not reach the board for ${what} (${describe(e)})` : `the board could not answer ${what} just now (${describe(e)})`;
@@ -132,7 +145,19 @@ export class BoardLink implements Board {
   }
 
   call<T>(name: string, args: Record<string, unknown>, deadline = this.now() + RETRY_WINDOW_MS): Promise<T> {
-    return this.retrying(name, async () => (await this.connected()).call<T>(name, args), deadline);
+    return this.retrying(
+      name,
+      async () => {
+        const c = await this.connected();
+        try {
+          return await c.callWithin<T>(name, args, this.within(deadline));
+        } catch (e) {
+          if (isTransportError(e)) this.retire(c);
+          throw e;
+        }
+      },
+      deadline,
+    );
   }
 
   async relay(txJson: string): Promise<Relayed> {
@@ -144,10 +169,10 @@ export class BoardLink implements Board {
       throw new KitError(`could not reach the board to send the transaction (${describe(e)}); it was not sent`, true);
     }
     try {
-      return await c.call<Relayed>("submit_signed", { tx_json: txJson });
+      return await c.callWithin<Relayed>("submit_signed", { tx_json: txJson }, RELAY_TIMEOUT_MS);
     } catch (e) {
       if (!isTransportError(e)) throw e;
-      await this.drop();
+      this.retire(c);
       throw new KitError(`the transaction was sent but the board's answer was lost (${describe(e)}); it may still go through, so the kit looks it up before trying again`, true, {
         outcomeUnknown: true,
       });
@@ -158,7 +183,7 @@ export class BoardLink implements Board {
     return this.retrying(
       `GET ${path}`,
       async () => {
-        const res = await this.o.fetch(`${this.origin}${path}`, { headers: { accept: "application/json" } });
+        const res = await this.o.fetch(`${this.origin}${path}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(this.within(deadline)) });
         const text = await res.text();
         if (res.status === 502 || res.status === 503 || res.status === 504) {
           // The board (or the proxy in front of it) is down for a moment.
@@ -199,6 +224,8 @@ export class BoardLink implements Board {
   }
 
   async close(): Promise<void> {
-    await this.drop();
+    const c = this.connection;
+    this.connection = null;
+    await c?.close();
   }
 }

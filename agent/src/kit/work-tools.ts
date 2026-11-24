@@ -247,7 +247,7 @@ export function workTools(d: KitDeps): WorkTools {
         await requirePayable(d, deadline);
         const r = await d.link.withSession((session) => claimStep(stepContext(d, deadline, session), id), deadline);
         return { bountyId: id, claimed: true, txHash: r.txHash, link: r.link, next: "do the task, then submit_work with a short preview and the full result" };
-      });
+      }, deadline);
     },
 
     async submit_work(a) {
@@ -267,7 +267,7 @@ export function workTools(d: KitDeps): WorkTools {
           link: r.link,
           next: "wait for the poster; check_status shows the outcome and any rejection reason",
         };
-      });
+      }, deadline);
     },
   };
 }

@@ -3,12 +3,11 @@ import { describe, expect, it } from "vitest";
 import { AccountAddress, buildBasicAccountSigner } from "@concordium/web-sdk";
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { BoardToolError } from "../src/board-client.js";
+import { BoardToolError, type BoardConnection } from "../src/board-client.js";
 import { BoardLink, isTransportError } from "../src/kit/board-link.js";
 import { KitError } from "../src/kit/errors.js";
 import { RailViolation } from "../src/rails/guard.js";
 import type { AgentKeys } from "../src/signer.js";
-import type { Board } from "../src/worker.js";
 
 function keys(fill: number): AgentKeys {
   const { privateKey } = generateKeyPairSync("ed25519");
@@ -18,7 +17,7 @@ function keys(fill: number): AgentKeys {
 const me = keys(1);
 const START = 1_000_000;
 
-type Connection = Board & { close(): Promise<void> };
+type Connection = BoardConnection;
 
 /** A clock whose sleep moves it forward, so retries take no real time. */
 function clock() {
@@ -26,17 +25,19 @@ function clock() {
   return { now: () => t, sleep: async (ms: number) => void (t += ms) };
 }
 
-/** A board connection whose tools answer from `tools`; every call is recorded in `calls`. */
-function connection(calls: { name: string; args: any }[], tools: Record<string, (args: any) => unknown>): Connection {
-  return {
-    async call(name: string, args: Record<string, any>): Promise<any> {
-      calls.push({ name, args });
-      const tool = tools[name];
-      if (!tool) throw new Error(`unexpected tool ${name}`);
-      return tool(args);
-    },
-    async close() {},
+/** A board connection whose tools answer from `tools` (given the call's time cap, if any); every call is recorded in `calls`. */
+function connection(calls: { name: string; args: any }[], tools: Record<string, (args: any, timeoutMs?: number) => unknown>): Connection {
+  const call = async (name: string, args: Record<string, any>, timeoutMs?: number): Promise<any> => {
+    calls.push({ name, args });
+    const tool = tools[name];
+    if (!tool) throw new Error(`unexpected tool ${name}`);
+    return tool(args, timeoutMs);
   };
+  return {
+    call: (name: string, args: Record<string, any>) => call(name, args),
+    callWithin: (name: string, args: Record<string, any>, timeoutMs: number) => call(name, args, timeoutMs),
+    async close() {},
+  } as Connection;
 }
 
 function linkWith(connect: () => Promise<Connection>, fetchImpl: typeof fetch = async () => Promise.reject(new Error("no HTTP in this test"))) {
@@ -181,6 +182,96 @@ describe("the kit's link to the board", () => {
   });
 });
 
+describe("the kit's link to the board, when calls hang", () => {
+  it("caps each attempt at what is left of the tool's deadline", async () => {
+    const timeouts: number[] = [];
+    const made = linkWith(async () =>
+      connection([], {
+        list_bounties: (_a, timeoutMs) => {
+          timeouts.push(timeoutMs ?? -1);
+          void made.clock.sleep(timeoutMs ?? 60_000); // the call hangs for as long as it is allowed to (60 s: the SDK's default)
+          throw new McpError(ErrorCode.RequestTimeout, "Request timed out");
+        },
+      }),
+    );
+    const failure = await made.link.call("list_bounties", {}).catch((e) => e);
+    expect(failure).toMatchObject({ retryable: true, message: expect.stringMatching(/nothing was signed or sent/) });
+    expect(timeouts[0]).toBe(30_000);
+    expect(made.clock.now() - START).toBeLessThanOrEqual(30_000);
+  });
+
+  it("gives submit_signed 45 seconds, and reports its timeout as an unknown outcome", async () => {
+    const timeouts: number[] = [];
+    const { link } = linkWith(async () =>
+      connection([], {
+        submit_signed: (_a, timeoutMs) => {
+          timeouts.push(timeoutMs ?? -1);
+          throw new McpError(ErrorCode.RequestTimeout, "Request timed out");
+        },
+      }),
+    );
+    await expect(link.relay("{}")).rejects.toMatchObject({ retryable: true, extra: { outcomeUnknown: true } });
+    expect(timeouts).toEqual([45_000]);
+  });
+
+  it("works again on the next call once the network is back", async () => {
+    let up = false;
+    const { link } = linkWith(async () => {
+      if (!up) throw new TypeError("fetch failed");
+      return connection([], { list_bounties: () => ({ bounties: [] }) });
+    });
+    await expect(link.call("list_bounties", {})).rejects.toBeInstanceOf(KitError);
+    up = true;
+    expect(await link.call("list_bounties", {})).toEqual({ bounties: [] });
+  });
+
+  it("gives each GET a time limit, and waits out one that times out", async () => {
+    const signals: unknown[] = [];
+    let n = 0;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal);
+      if (++n === 1) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { link } = linkWith(async () => connection([], {}), fetchImpl);
+    expect(await link.get("/config")).toEqual({ ok: true });
+    expect(signals).toHaveLength(2);
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+  });
+
+  it("leaves the new connection alone when a call on the old one fails late", async () => {
+    const calls: { name: string; args: any }[] = [];
+    let connects = 0;
+    const closed: number[] = [];
+    let releaseSlow!: () => void;
+    const slowFails = new Promise<void>((r) => (releaseSlow = r));
+    const { link } = linkWith(async () => {
+      const n = ++connects;
+      const conn = connection(calls, {
+        get_status: () => {
+          if (n === 1) throw new TypeError("fetch failed");
+          return { status: { type: "Open" } };
+        },
+        slow: async () => {
+          if (n === 1) {
+            await slowFails;
+            throw new TypeError("fetch failed");
+          }
+          return { done: true };
+        },
+      });
+      return { ...conn, close: async () => void closed.push(n) };
+    });
+    const slow = link.call("slow", {}); // in flight on connection 1
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await link.call("get_status", { bounty_id: "5" })).toEqual({ status: { type: "Open" } }); // fails on 1, answers on 2
+    releaseSlow(); // the old call fails now too
+    expect(await slow).toEqual({ done: true }); // and is retried on connection 2
+    expect(connects).toBe(2);
+    expect(closed).not.toContain(2);
+  });
+});
+
 describe("transport errors", () => {
   it("tells a network failure from a bug or a refusal", () => {
     expect(isTransportError(new TypeError("fetch failed"))).toBe(true);
@@ -192,6 +283,7 @@ describe("transport errors", () => {
     expect(isTransportError(Object.assign(new Error("14 UNAVAILABLE: No connection established"), { code: "UNAVAILABLE" }))).toBe(true); // the Concordium node over gRPC
     expect(isTransportError(Object.assign(new Error("deadline exceeded"), { code: "DEADLINE_EXCEEDED" }))).toBe(true);
     expect(isTransportError(Object.assign(new Error("not found"), { code: "NOT_FOUND" }))).toBe(false);
+    expect(isTransportError(new DOMException("The operation was aborted due to timeout", "TimeoutError"))).toBe(true);
     expect(isTransportError(new TypeError("Cannot read properties of undefined (reading 'status')"))).toBe(false);
     expect(isTransportError(new McpError(ErrorCode.InvalidParams, "bad args"))).toBe(false);
     expect(isTransportError(busy("login"))).toBe(false);

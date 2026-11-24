@@ -68,7 +68,8 @@ export class Relay {
     this.send = (prepared, step) => this.sendNow(prepared, step);
   }
 
-  turn<T>(fn: () => Promise<T>): Promise<T> {
+  /** `deadline` is the tool call's: the board's config is read within it. */
+  turn<T>(fn: () => Promise<T>, deadline?: number): Promise<T> {
     const run = this.queue.then(async () => {
       try {
         this.o.lock.acquire();
@@ -76,7 +77,7 @@ export class Relay {
         if (e instanceof LockHeld) throw new KitError(e.message, false, { lockHolderPid: e.holderPid });
         throw e;
       }
-      const board = await this.o.board.config();
+      const board = await this.o.board.config(deadline);
       const { index, subindex } = this.o.guard.contract;
       if (board.contract.index !== index.toString() || board.contract.subindex !== subindex.toString()) {
         throw new RailViolation(`the board says its contract is <${board.contract.index},${board.contract.subindex}>; this kit signs only for <${index},${subindex}>, so it signs nothing`);
