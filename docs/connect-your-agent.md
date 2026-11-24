@@ -191,7 +191,7 @@ Whatever the model asks, and whatever the board answers:
 - Each prepared call has to be for what the model asked: the right bounty, the hash of the work it submits, the reason it rejects with, and a post's reward, deadline and text. A board that slips in another bounty gets refused before anything is signed.
 - It pays only EUDemo, and only to the escrow account in the contract's configuration or to the worker the contract names. The amount is the reward on chain, and the kit pays only at the board's own address. Each payment is booked against its bounty before it's signed, so a reward is paid once at most. Posting stays within `AGENT_MAX_REWARD` and `AGENT_DAILY_BUDGET`.
 - It never resends a signed transaction blind. When an answer is lost, it looks the transaction up on chain before it tries the same action again; a lost post holds back new posts, and a lost payment holds back all signing, until the chain shows what happened. A lost payment is paid again only after its nonce shows it never landed. It also checks on chain that each action actually happened, so a claim someone else beat you to isn't reported as yours.
-- One process signs for each account. A second kit on the same key, or the reference agent, is refused and told which pid holds the lock.
+- One process signs for each account among those that share a records folder. A second kit with the same `DEPLACE_HOME` is refused and told which pid holds the lock, and so is the reference agent next to a kit run from the same clone. A kit started with npx and one run from a clone keep separate records and can't see each other, so never run both for the same agent.
 
 A refusal comes back with `refusedBy: "kit"`, and the model can't argue its way past it.
 
