@@ -4,6 +4,7 @@ import { BoardToolError } from "../board-client.js";
 import { RailViolation } from "../rails/guard.js";
 import { isTransportError } from "./board-link.js";
 import { KitError } from "./errors.js";
+import type { HireTools } from "./hire-tools.js";
 import type { WorkTools } from "./work-tools.js";
 
 export const KIT_INSTRUCTIONS = [
@@ -57,7 +58,7 @@ export const bountyIdSchema = z
   .regex(/^\d{1,20}$/)
   .describe('The bounty\'s id, a decimal number such as "5"');
 
-export function buildKitServer(work: WorkTools): McpServer {
+export function buildKitServer(work: WorkTools, hire: HireTools): McpServer {
   const s = new McpServer({ name: "deplace-agent-kit", version: "0.1.0" }, { instructions: KIT_INSTRUCTIONS });
 
   s.registerTool(
@@ -102,6 +103,64 @@ export function buildKitServer(work: WorkTools): McpServer {
       },
     },
     run((a) => work.submit_work(a)),
+  );
+
+  s.registerTool(
+    "post_bounty",
+    {
+      description:
+        "Post a bounty paid in EUDemo. reward is a decimal amount; your owner caps each reward and the total per 24 hours. escrow: true moves the reward into escrow now; otherwise you pay the worker on delivery with get_work.",
+      inputSchema: {
+        title: z.string().min(1).max(120).describe("Up to 120 characters"),
+        description: z.string().max(4000).describe("What the worker must do and deliver"),
+        task_kind: z
+          .string()
+          .regex(/^[a-z0-9-]{1,32}$/)
+          .describe("Lowercase letters, digits and dashes, e.g. page-facts"),
+        input: z.record(z.string(), z.unknown()).describe("A JSON object with the task's input, under 2 KB"),
+        kind: z.enum(["Exclusive", "Contest"]).describe("Exclusive: one worker claims it. Contest: many enter and you award one after the deadline."),
+        reward: z.string().describe('Decimal EUDemo amount, e.g. "1" or "0.5"'),
+        deadline_hours: z.number().positive().max(2160).describe("Hours from now, at most 2,160 (90 days)"),
+        escrow: z.boolean().optional().describe("true: move the reward into escrow now. Otherwise you pay on delivery with get_work."),
+      },
+    },
+    run((a) => hire.post_bounty(a)),
+  );
+  s.registerTool(
+    "fund_bounty",
+    { description: "Escrow the reward of a bounty you posted. The kit pays only the escrow account the contract names.", inputSchema: { bounty_id: bountyIdSchema } },
+    run((a) => hire.fund_bounty(a)),
+  );
+  s.registerTool(
+    "accept",
+    { description: "Accept the submitted work on your bounty. Escrowed rewards are then paid out by the escrow.", inputSchema: { bounty_id: bountyIdSchema } },
+    run((a) => hire.accept(a)),
+  );
+  s.registerTool(
+    "reject",
+    {
+      description: "Send submitted work back with a reason. The third rejection is final and goes on your public record.",
+      inputSchema: { bounty_id: bountyIdSchema, reason: z.string().min(1).max(2000).describe("What is wrong with the work; the worker sees it") },
+    },
+    run((a) => hire.reject(a)),
+  );
+  s.registerTool(
+    "award",
+    {
+      description: "Pick the winning entry of your contest, after its deadline and before the review window ends.",
+      inputSchema: { bounty_id: bountyIdSchema, entry_id: z.number().int().min(0).describe("The entry's id, from check_status") },
+    },
+    run((a) => hire.award(a)),
+  );
+  s.registerTool(
+    "cancel",
+    { description: "Cancel your bounty while nobody has claimed or entered it.", inputSchema: { bounty_id: bountyIdSchema } },
+    run((a) => hire.cancel(a)),
+  );
+  s.registerTool(
+    "get_work",
+    { description: "The delivered work of your bounty. If it isn't escrowed, the kit first pays the worker the contract names, once.", inputSchema: { bounty_id: bountyIdSchema } },
+    run((a) => hire.get_work(a)),
   );
   return s;
 }

@@ -24,6 +24,7 @@ import { encodePaymentRequiredHeader } from "@x402/core/http";
 import { BoardToolError } from "../../src/board-client.js";
 import type { KitChain, TxOutcome } from "../../src/chain.js";
 import { BoardLink } from "../../src/kit/board-link.js";
+import { hireTools } from "../../src/kit/hire-tools.js";
 import { Relay } from "../../src/kit/relay.js";
 import { buildKitServer } from "../../src/kit/server.js";
 import { workTools, type KitDeps } from "../../src/kit/work-tools.js";
@@ -117,6 +118,8 @@ export interface ScriptedBounty {
   rejections: number;
   entries: { worker: string; agent: bigint | null; workHash: string }[];
   events: (BoardEvent & { tx: string })[];
+  /** The accepted or awarded work, which the board still releases once the bounty is Paid. */
+  acceptedWork?: { workHash: string; worker: string };
 }
 
 export interface WorldOptions {
@@ -209,9 +212,9 @@ export function world(o: WorldOptions = {}) {
   };
   const payeeOf = (b: ScriptedBounty) => (b.status.type === "Accepted" || b.status.type === "AcceptedUnpaid" ? b.status.worker : b.status.type === "Awarded" ? b.entries[b.status.entryId]!.worker : null);
   const itemsOf = (b: ScriptedBounty) => {
-    const hash = b.status.type === "Accepted" ? b.status.workHash : b.status.type === "Awarded" ? b.entries[b.status.entryId]!.workHash : null;
-    const sub = hash ? submissions.get(hash) : undefined;
-    return hash && sub ? [{ workHash: hash, worker: payeeOf(b), full: sub.full, hashMatches: true }] : [];
+    const work = b.acceptedWork;
+    const sub = work ? submissions.get(work.workHash) : undefined;
+    return work && sub ? [{ workHash: work.workHash, worker: work.worker, full: sub.full, hashMatches: true }] : [];
   };
 
   /** What the contract does with a transaction the agent signed. */
@@ -268,6 +271,7 @@ export function world(o: WorldOptions = {}) {
       } else if (entrypoint === "accept") {
         if (b.status.type !== "Submitted") throw new BoardToolError("submit_signed", "MCP error -32603: the transaction failed: nothing to accept");
         b.status = { type: "Accepted", worker: b.status.worker, at: now, workHash: b.status.workHash };
+        b.acceptedWork = { workHash: b.status.workHash, worker: b.status.worker };
         out.push(event(b, { type: "Accepted", id, worker: b.status.worker, auto: false }, hash));
       } else if (entrypoint === "reject") {
         if (b.status.type !== "Submitted") throw new BoardToolError("submit_signed", "MCP error -32603: the transaction failed: nothing to reject");
@@ -278,6 +282,7 @@ export function world(o: WorldOptions = {}) {
       } else if (entrypoint === "award") {
         const entryId = param.readUInt32LE(8);
         b.status = { type: "Awarded", entryId, at: now };
+        b.acceptedWork = { workHash: b.entries[entryId]!.workHash, worker: b.entries[entryId]!.worker };
         out.push(event(b, { type: "Awarded", id, entryId, worker: b.entries[entryId]!.worker }, hash));
       } else if (entrypoint === "cancel") {
         b.status = { type: "Cancelled" };
@@ -535,6 +540,12 @@ export function world(o: WorldOptions = {}) {
       submissions.set(sha(full), { preview: full.slice(0, 40), full });
       b.status = { type: "Submitted", worker: WORKER, agent: null, workHash: sha(full), at: BigInt(t) };
     },
+    /** WORKER enters `full` in contest `id`. */
+    workerEnters(id: string, full: string) {
+      const b = bountyOf("enter", id);
+      submissions.set(sha(full), { preview: full.slice(0, 40), full });
+      b.entries.push({ worker: WORKER, agent: null, workHash: sha(full) });
+    },
   };
 }
 
@@ -573,7 +584,7 @@ export async function kitClient(w: World, over: { maxPerBounty?: bigint; dailyCa
     now: w.clock.now,
     log: say,
   };
-  const server = buildKitServer(workTools(deps));
+  const server = buildKitServer(workTools(deps), hireTools(deps));
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide);
   const client = new Client({ name: "kit-test", version: "0.0.0" });
@@ -606,6 +617,10 @@ export async function kitClient(w: World, over: { maxPerBounty?: bigint; dailyCa
     },
     async tools(): Promise<string[]> {
       return (await client.listTools()).tools.map((t) => t.name);
+    },
+    /** A tool's description, as the model reads it. */
+    async description(name: string): Promise<string> {
+      return (await client.listTools()).tools.find((t) => t.name === name)?.description ?? "";
     },
     async close() {
       await client.close();

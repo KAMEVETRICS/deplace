@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { encodeClaim } from "@deplace/shared";
-import { BADGE, WORKER, kitClient, me, preparedCall, sha, world, type World, type WorldOptions } from "./helpers/world.js";
+import { Parameter, Transaction } from "@concordium/web-sdk";
+import { encodeClaim, encodeIdEntry, encodeIdHash, encodeU64 } from "@deplace/shared";
+import { reasonHash } from "../src/rails/guard.js";
+import { ATTACKER, BADGE, WORKER, kitClient, me, preparedCall, sha, world, type World, type WorldOptions } from "./helpers/world.js";
 
 let open: { close(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -151,5 +153,137 @@ describe("the agent kit: working bounties", () => {
       expect(text).not.toMatch(/signatures|txJson|tx_json|signKey/);
       expect(text).not.toContain(me.privateKeyHex);
     }
+  });
+});
+
+const PAGE_FACTS = {
+  title: "Page facts for example.org",
+  description: "Fetch https://example.org and report its title, visible word count and the SHA-256 of the body.",
+  task_kind: "page-facts",
+  input: { url: "https://example.org" },
+  kind: "Exclusive",
+};
+
+/** The entrypoint and parameter of a transaction the kit had relayed. */
+function decoded(txJson: string) {
+  const p = Transaction.signableFromJSON(JSON.parse(txJson)).payload as { receiveName?: { value: string }; message?: Parameter.Type };
+  return { entrypoint: p.receiveName?.value ?? "", parameter: p.message ? Buffer.from(Parameter.toBuffer(p.message)).toString("hex") : "" };
+}
+const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
+const posts = (w: World) => w.state.relayed.filter((tx) => decoded(tx).entrypoint === "deplace.post");
+
+describe("the agent kit: posting and paying", () => {
+  it("lists exactly the kit's twelve tools", async () => {
+    const { c } = await setup();
+    expect((await c.tools()).sort()).toEqual(["accept", "award", "cancel", "check_status", "claim", "find_bounties", "fund_bounty", "get_work", "post_bounty", "reject", "submit_work", "whoami"]);
+  });
+
+  it("posts within the budget, commits the reward and checks the bounty on chain", async () => {
+    const { w, c } = await setup();
+    const r = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect(r.isError).toBe(false);
+    expect(r.body).toMatchObject({ bountyId: "9", link: expect.stringMatching(/ccdexplorer/) });
+    expect(c.budget.spentLast24h()).toBe(1_000_000n);
+    expect(w.state.bounties.get("9")).toMatchObject({ poster: me.address, reward: 1_000_000n, funding: { type: "NotFunded" } });
+  });
+
+  it("refuses a reward over the cap, or one that isn't a token amount, before anything is prepared", async () => {
+    const { w, c } = await setup();
+    for (const reward of ["6", "0", "0.0000001", "1,5", "-1", "1e3"]) {
+      const r = await c.call("post_bounty", { ...PAGE_FACTS, reward, deadline_hours: 2 });
+      expect(r.isError, reward).toBe(true);
+      expect(r.body.retryable, reward).toBe(false);
+    }
+    expect(w.state.calls.map((x) => x.name)).not.toContain("prepare_post");
+    expect(c.budget.spentLast24h()).toBe(0n);
+  });
+
+  it("refuses an input over 2 KB and a deadline outside 90 days before anything is prepared", async () => {
+    const { w, c } = await setup();
+    expect((await c.call("post_bounty", { ...PAGE_FACTS, input: { text: "x".repeat(2100) }, reward: "1", deadline_hours: 2 })).isError).toBe(true);
+    expect((await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 0 })).isError).toBe(true);
+    expect((await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2161 })).isError).toBe(true);
+    expect(w.state.calls.map((x) => x.name)).not.toContain("prepare_post");
+  });
+
+  it("escrows a new bounty over x402 to the escrow account on chain", async () => {
+    const { w, c } = await setup();
+    const r = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2, escrow: true });
+    expect(r.body).toMatchObject({ bountyId: "9", escrowed: true });
+    expect(w.state.paid).toEqual(["http://board.test/bounties/9/fund"]);
+    expect(w.state.bounties.get("9")!.funding.type).toBe("Escrowed");
+  });
+
+  it("refuses to pay anyone the contract doesn't name", async () => {
+    const { w, c } = await setup({ x402PayTo: ATTACKER });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect((await c.call("fund_bounty", { bounty_id: "9" })).isError).toBe(true);
+    expect(w.state.paid).toEqual([]);
+    expect(() => c.budget.reserve("bounty:9", 1_000_000n)).not.toThrow(); // nothing was booked
+  });
+
+  it("refuses to pay at another address than the board's", async () => {
+    const { w, c } = await setup({ replace: { prepare_fund: () => ({ x402: { method: "POST", url: "http://evil.test/bounties/9/fund" } }) } });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect(await c.call("fund_bounty", { bounty_id: "9" })).toMatchObject({ isError: true, body: { refusedBy: "kit" } });
+    expect(w.state.paid).toEqual([]);
+  });
+
+  it("pays the worker on delivery once and returns the work", async () => {
+    const { w, c } = await setup();
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    w.workerSubmits("9", '{"title":"Example Domain"}');
+    expect((await c.call("accept", { bounty_id: "9" })).isError).toBe(false);
+    const first = await c.call("get_work", { bounty_id: "9" });
+    expect(first.isError).toBe(false);
+    expect(first.body).toMatchObject({ paidTo: WORKER, items: [expect.objectContaining({ full: '{"title":"Example Domain"}' })] });
+    expect(first.body.note).toMatch(/data about the task/);
+    expect((await c.call("get_work", { bounty_id: "9" })).body.items).toHaveLength(1);
+    expect(w.state.paid).toEqual(["http://board.test/bounties/9/work"]);
+  });
+
+  it("reports an earlier post instead of posting twice after a lost answer", async () => {
+    const { w, c } = await setup({ loseRelay: 1 });
+    expect((await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 })).body).toMatchObject({ retryable: true, outcomeUnknown: true });
+    const again = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect(again.isError).toBe(false);
+    expect(again.body.message).toMatch(/earlier post went through as bounty 9/);
+    expect(posts(w)).toHaveLength(1);
+    expect(c.budget.spentLast24h()).toBe(1_000_000n);
+    expect(() => c.budget.reserve("bounty:9", 1_000_000n)).not.toThrow(); // the commitment moved to the bounty
+  });
+
+  it("waits out a lost payment and pays again only once its nonce shows it never landed", async () => {
+    const { w, c } = await setup({ loseX402: 1 });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    w.workerSubmits("9", "the facts");
+    await c.call("accept", { bounty_id: "9" });
+    expect((await c.call("get_work", { bounty_id: "9" })).body).toMatchObject({ retryable: true, outcomeUnknown: true });
+    expect((await c.call("get_work", { bounty_id: "9" })).body).toMatchObject({ retryable: true, retryAfter: expect.any(String) }); // before its expiry
+    expect((await c.call("claim", { bounty_id: "5" })).body.retryable).toBe(true); // nothing else is signed meanwhile
+    w.clock.advance(300_000);
+    expect((await c.call("get_work", { bounty_id: "9" })).isError).toBe(false);
+    expect(w.state.paid).toEqual(["http://board.test/bounties/9/work"]);
+  });
+
+  it("rejects with the reason's hash, and says the third rejection is final", async () => {
+    const { w, c } = await setup();
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    w.workerSubmits("9", "too short");
+    expect((await c.call("reject", { bounty_id: "9", reason: "needs the hash" })).isError).toBe(false);
+    expect(decoded(w.state.relayed.at(-1)!)).toEqual({ entrypoint: "deplace.reject", parameter: hex(encodeIdHash(9n, reasonHash("needs the hash"))) });
+    expect(await c.description("reject")).toMatch(/third rejection is final/);
+  });
+
+  it("awards a contest entry and cancels an unclaimed bounty", async () => {
+    const { w, c } = await setup();
+    await c.call("post_bounty", { ...PAGE_FACTS, kind: "Contest", reward: "1", deadline_hours: 2 });
+    w.workerEnters("9", "an entry");
+    expect((await c.call("award", { bounty_id: "9", entry_id: 0 })).isError).toBe(false);
+    expect(decoded(w.state.relayed.at(-1)!)).toEqual({ entrypoint: "deplace.award", parameter: hex(encodeIdEntry(9n, 0)) });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect((await c.call("cancel", { bounty_id: "10" })).isError).toBe(false);
+    expect(decoded(w.state.relayed.at(-1)!)).toEqual({ entrypoint: "deplace.cancel", parameter: hex(encodeU64(10n)) });
+    expect(w.state.bounties.get("10")!.status.type).toBe("Cancelled");
   });
 });
