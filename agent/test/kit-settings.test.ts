@@ -23,10 +23,15 @@ describe("the kit's settings", () => {
     expect(s.card).toEqual({ name: null, description: null, url: null, file: join("C:\\repo", "data", "agent-card.json"), skills: null });
   });
 
-  it("resolves key paths with backslashes, spaces or relative to the repo", () => {
+  it.runIf(process.platform === "win32")("resolves Windows key paths with backslashes, spaces or relative to the repo", () => {
     expect(loadKitSettings({ AGENT_KEY_FILE: "secrets\\worker-agent.export" }, "C:\\repo").keyFile).toBe(join("C:\\repo", "secrets", "worker-agent.export"));
     expect(loadKitSettings({ AGENT_KEY_FILE: "C:\\Users\\Some One\\agent.export" }, "C:\\repo").keyFile).toBe("C:\\Users\\Some One\\agent.export");
     expect(loadKitSettings({ AGENT_KEY_FILE: "  C:/Users/Some One/agent.export  " }, "C:\\repo").keyFile).toBe(join("C:/Users/Some One/agent.export"));
+  });
+
+  it.runIf(process.platform !== "win32")("resolves key paths with spaces or relative to the repo", () => {
+    expect(loadKitSettings({ AGENT_KEY_FILE: "secrets/worker-agent.export" }, "/repo").keyFile).toBe("/repo/secrets/worker-agent.export");
+    expect(loadKitSettings({ AGENT_KEY_FILE: "  /home/some one/agent.export  " }, "/repo").keyFile).toBe("/home/some one/agent.export");
   });
 
   it("takes the board, contract, caps and card from the environment", () => {
