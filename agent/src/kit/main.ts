@@ -1,16 +1,17 @@
 // The Deplace agent kit: an MCP server on stdio that works, posts and pays Deplace bounties for
 // any MCP client, with its owner's agent key and rails. Started by agent/bin/kit.mjs.
 // Settings come from the environment only; see docs/connect-your-agent.md.
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { parseTokenAmount } from "@deplace/shared";
+import { agentLink, parseTokenAmount } from "@deplace/shared";
 import { connectBoard } from "../board-client.js";
 import { AgentChain } from "../chain.js";
 import { agentTokenId } from "../identity.js";
 import { SpendBudget } from "../rails/budget.js";
 import { AccountLock, lockFileFor } from "../rails/lock.js";
 import { PendingStore } from "../rails/pending.js";
+import { chainSubmitter, hostedRegistry, registerAgent } from "../registry.js";
 import { loadAgentKeys } from "../signer.js";
 import { BoardLink } from "./board-link.js";
 import { hireTools } from "./hire-tools.js";
@@ -86,9 +87,59 @@ async function serve(settings: KitSettings) {
   }
 }
 
+export const DEFAULT_SKILLS = [{ id: "deplace-bounties", name: "Deplace bounties", description: "Works and posts bounties on the Deplace board (https://deplace.space).", tags: ["bounty"] }];
+
+/** Gets the owner's agent an Agent Registry badge, one step per run; returns the exit code. */
+async function register(settings: KitSettings): Promise<number> {
+  const { name, description, url } = settings.card;
+  const missing = (
+    [
+      ["AGENT_NAME", name],
+      ["AGENT_DESCRIPTION", description],
+      ["AGENT_CARD_URL", url],
+    ] as const
+  )
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+  if (missing.length > 0 || !name || !description || !url) {
+    throw new Error(`set ${missing.join(", ")} to register your agent: its name and description go in its Agent Card, and AGENT_CARD_URL is the public URL that will serve the card`);
+  }
+  const keys = loadAgentKeys(settings.keyFile);
+  const say = (m: string) => void process.stderr.write(`${m}\n`);
+  const out = await registerAgent({
+    owner: keys.address,
+    submit: chainSubmitter(keys, { host: settings.grpcHost, port: settings.grpcPort }, say),
+    registry: hostedRegistry(),
+    fetch,
+    card: { name, description, url, file: settings.card.file, skills: settings.card.skills ?? DEFAULT_SKILLS },
+    registeredFile: join(dirname(settings.pendingFile), `agent-register-${keys.address}.txt`),
+    registryContract: settings.registry,
+    log: say,
+  });
+  switch (out.step) {
+    case "indexer-behind":
+      say(`registered in https://ccdexplorer.io/testnet/transaction/${out.tx}, but the registry's indexer doesn't list the agent yet; run this again in a few minutes`);
+      return 1;
+    case "card-written":
+      return 0;
+    case "card-not-served":
+      return 1;
+    case "badge":
+      say(`   ${agentLink(BigInt(out.tokenId), settings.registry)}`);
+      if (!out.valid) return 1;
+      say("Set this in the kit's environment:");
+      process.stdout.write(`AGENT_BADGE=${out.badge}\n`);
+      return 0;
+  }
+}
+
 /** argv[0] === "register" gets an Agent Registry badge; no arguments serves the kit on stdio. */
 export async function main(argv: string[], env: Record<string, string | undefined>): Promise<void> {
   const settings = loadKitSettings(env, ROOT);
-  if (argv.length > 0) throw new Error(`unknown command "${argv.join(" ")}": run the kit with no arguments to serve it to an MCP client`);
+  if (argv[0] === "register" && argv.length === 1) {
+    // The gRPC channel would keep the process alive.
+    process.exit(await register(settings));
+  }
+  if (argv.length > 0) throw new Error(`unknown command "${argv.join(" ")}": run the kit with no arguments to serve it to an MCP client, or with register to get a badge`);
   await serve(settings);
 }

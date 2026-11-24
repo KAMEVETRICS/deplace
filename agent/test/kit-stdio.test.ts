@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,5 +53,17 @@ describe("the kit on stdio", () => {
     } finally {
       await client.close();
     }
+  }, 60_000);
+
+  it("register names the settings it is missing, before touching the network", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kit-register-"));
+    const run = spawnSync(process.execPath, [fileURLToPath(new URL("../bin/kit.mjs", import.meta.url)), "register"], {
+      env: { ...getDefaultEnvironment(), AGENT_KEY_FILE: keyExport(dir), AGENT_CARD_URL: "https://example.org/card.json", AGENT_PENDING_FILE: join(dir, "pending.json") },
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toMatch(/AGENT_NAME, AGENT_DESCRIPTION/);
+    expect(run.stdout).toBe("");
   }, 60_000);
 });

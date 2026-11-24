@@ -1,0 +1,128 @@
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { REFERENCE_AGENT_CARD, registerAgent, type BuiltTx, type RegisterOptions } from "../src/registry.js";
+
+const OWNER = "4S3UrfhQbefa5SmR9qFsfTdVqYpSN9s4DVcmyVjTbNkoDtMxGs";
+const URL_ = "https://raw.githubusercontent.com/someone/agent/main/card.json";
+const CARD_JSON = '{"name":"My agent","capabilities":{"extensions":[]}}';
+const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
+const built = (receive: string): BuiltTx => ({ contract_address: { index: 12802, subindex: 0 }, receive_name: receive, parameter_hex: "00" });
+
+interface Scenario {
+  /** What agents_by_owner answers, one per call; the last answer repeats. */
+  agents: unknown[][];
+  /** The bytes the card URL serves. */
+  served?: string;
+  badgeValid?: boolean;
+  /** The card file already written by an earlier run. */
+  cardOnDisk?: string;
+  /** An earlier run sent the register transaction. */
+  registeredBefore?: string;
+}
+
+function setup(s: Scenario) {
+  const dir = mkdtempSync(join(tmpdir(), "register-"));
+  const calls: { name: string; args: any }[] = [];
+  const submitted: string[] = [];
+  const log: string[] = [];
+  const file = join(dir, "card.json");
+  const registeredFile = join(dir, "register-tx.txt");
+  if (s.cardOnDisk !== undefined) writeFileSync(file, s.cardOnDisk);
+  if (s.registeredBefore !== undefined) writeFileSync(registeredFile, s.registeredBefore + "\n");
+  const answers = [...s.agents];
+  const tools: Record<string, (args: any) => unknown> = {
+    agents_by_owner: () => ({ agents: answers.length > 1 ? answers.shift() : answers[0] }),
+    build_register: () => built("cis8004.register"),
+    build_agent_card: () => ({ agent_card_json: CARD_JSON, metadata_hash_hex: sha(CARD_JSON) }),
+    build_set_agent_uri: () => built("cis8004.setAgentURI"),
+    token_address: () => ({ token_address: "JyP9WVTtVnRuL8JUmLKZH" }),
+    check_badge: () => ({ badge_valid: s.badgeValid ?? true, issues: s.badgeValid === false ? [{ message: "card hash does not match" }] : [] }),
+  };
+  const o: RegisterOptions = {
+    owner: OWNER,
+    submit: async (tx, onSent) => {
+      submitted.push(tx.receive_name);
+      onSent?.("ab".repeat(32));
+    },
+    registry: {
+      async call(name, args) {
+        calls.push({ name, args });
+        const tool = tools[name];
+        if (!tool) throw new Error(`unexpected registry tool ${name}`);
+        return tool(args) as never;
+      },
+    },
+    fetch: (async (url: string) => {
+      if (url !== URL_) throw new TypeError("fetch failed");
+      return new Response(s.served ?? "", { status: s.served === undefined ? 404 : 200 });
+    }) as unknown as typeof fetch,
+    card: { name: "My agent", description: "Works Deplace bounties.", url: URL_, file, skills: [{ id: "deplace-bounties", name: "Deplace bounties" }] },
+    registeredFile,
+    registryContract: { index: 12802n, subindex: 0n },
+    log: (m) => void log.push(m),
+    sleep: async () => {},
+  };
+  return { o, calls, submitted, log, file, registeredFile };
+}
+
+const mine = (extra: Record<string, unknown> = {}) => ({ token_id: 77, agent_uri: URL_, status: "Active", ...extra });
+
+describe("registering an agent", () => {
+  it("registers once, then writes the card for the minted token and stops until it's served", async () => {
+    const r = setup({ agents: [[], [mine()]] });
+    const out = await registerAgent(r.o);
+    expect(r.submitted).toEqual(["cis8004.register"]);
+    expect(out).toEqual({ step: "card-written", file: r.file, url: URL_, tokenId: "77" });
+    expect(readFileSync(r.file, "utf8")).toBe(CARD_JSON);
+    expect(readFileSync(r.registeredFile, "utf8").trim()).toBe("ab".repeat(32));
+    expect(r.calls.find((c) => c.name === "build_register")!.args).toMatchObject({ sender: OWNER, agent_uri: URL_ });
+  });
+
+  it("never registers twice while the registry's indexer catches up", async () => {
+    const r = setup({ agents: [[]], registeredBefore: "cd".repeat(32) });
+    expect(await registerAgent(r.o)).toEqual({ step: "indexer-behind", tx: "cd".repeat(32) });
+    expect(r.submitted).toEqual([]);
+  });
+
+  it("pins the served card's hash and checks the badge", async () => {
+    const r = setup({ agents: [[mine({ metadata_hash_hex: null })]], cardOnDisk: CARD_JSON, served: CARD_JSON });
+    const out = await registerAgent(r.o);
+    expect(r.submitted).toEqual(["cis8004.setAgentURI"]);
+    expect(r.calls.find((c) => c.name === "build_set_agent_uri")!.args).toEqual({ token_id: "77", metadata_hash_hex: sha(CARD_JSON), sender: OWNER });
+    expect(out).toEqual({ step: "badge", badge: "JyP9WVTtVnRuL8JUmLKZH", valid: true, issues: [], tokenId: "77" });
+  });
+
+  it("sends nothing when everything is in place", async () => {
+    const r = setup({ agents: [[mine({ metadata_hash_hex: sha(CARD_JSON) })]], cardOnDisk: CARD_JSON, served: CARD_JSON });
+    expect(await registerAgent(r.o)).toMatchObject({ step: "badge", valid: true });
+    expect(r.submitted).toEqual([]);
+    expect(existsSync(r.registeredFile)).toBe(false);
+  });
+
+  it("says so when the URL serves other bytes than the card", async () => {
+    const r = setup({ agents: [[mine()]], cardOnDisk: CARD_JSON, served: "an older card" });
+    expect(await registerAgent(r.o)).toEqual({ step: "card-not-served", url: URL_, served: sha("an older card"), expected: sha(CARD_JSON) });
+    expect(r.submitted).toEqual([]);
+  });
+
+  it("reports an invalid badge with the registry's reasons", async () => {
+    const r = setup({ agents: [[mine({ metadata_hash_hex: sha(CARD_JSON) })]], cardOnDisk: CARD_JSON, served: CARD_JSON, badgeValid: false });
+    expect(await registerAgent(r.o)).toMatchObject({ step: "badge", valid: false, issues: ["card hash does not match"] });
+  });
+
+  it("asks the registry for the reference agent's card with the same input as before", async () => {
+    const r = setup({ agents: [[mine()]] });
+    await registerAgent({ ...r.o, card: { ...REFERENCE_AGENT_CARD, url: URL_, file: r.file } });
+    expect(r.calls.find((c) => c.name === "build_agent_card")!.args).toEqual({
+      name: "Deplace reference worker",
+      description: "Reference worker agent for Deplace: claims page-facts bounties, fetches the page and reports its title, visible word count and SHA-256.",
+      agent_uri: URL_,
+      owner_account: OWNER,
+      token_id: "77",
+      skills: [{ id: "page-facts", name: "Page facts", description: "Fetch a public URL and report its title, visible word count and SHA-256.", tags: ["bounty", "web"] }],
+    });
+  });
+});
