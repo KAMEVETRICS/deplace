@@ -91,6 +91,10 @@ export class SpendBudget {
     this.save();
   }
 
+  has(ref: string): boolean {
+    return this.entries.some((e) => e.ref === ref);
+  }
+
   /** Drops a commitment nothing was paid against: the reward of a post that never landed. */
   remove(ref: string): void {
     const i = this.entries.findIndex((e) => e.ref === ref);

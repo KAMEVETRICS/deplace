@@ -143,6 +143,12 @@ describe("the agent kit: working bounties", () => {
     expect(w.state.relayed).toHaveLength(1);
   });
 
+  it("says a claim the contract rejected was rejected, not claimed", async () => {
+    const { w, c } = await setup({ rejectOnChain: ["claim"] });
+    expect(await c.call("claim", { bounty_id: "5" })).toMatchObject({ isError: true, body: { retryable: false, rejectedOnChain: true } });
+    expect(w.state.bounties.get("5")!.status.type).toBe("Open");
+  });
+
   it("never shows transaction JSON, signatures or keys", async () => {
     const { c } = await setup();
     await c.call("whoami");
@@ -276,6 +282,19 @@ describe("the agent kit: posting and paying", () => {
     c.budget.commit("bounty:5", 1_000_000n); // as if a commitment had ended up on it
     expect(await c.call("get_work", { bounty_id: "5" })).toMatchObject({ isError: true, body: { refusedBy: "kit" } });
     expect(w.state.paid).toEqual([]);
+  });
+
+  it("frees the reward of a post the contract rejected", async () => {
+    const { w, c } = await setup({ rejectOnChain: ["post"] });
+    expect(await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 })).toMatchObject({ isError: true, body: { rejectedOnChain: true } });
+    expect(c.budget.spentLast24h()).toBe(0n);
+    expect(w.state.bounties.has("9")).toBe(false);
+  });
+
+  it("says an accept the contract rejected was rejected", async () => {
+    const { c } = await setup();
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 }); // nothing submitted yet
+    expect(await c.call("accept", { bounty_id: "9" })).toMatchObject({ isError: true, body: { rejectedOnChain: true } });
   });
 
   it("rejects with the reason's hash, and says the third rejection is final", async () => {

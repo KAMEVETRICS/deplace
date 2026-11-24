@@ -137,6 +137,8 @@ export interface WorldOptions {
   loseX402?: number;
   eligible?: boolean;
   contract?: { index: string; subindex: string };
+  /** Entrypoints the contract rejects: the transaction lands as failed and the board still answers normally, with no events. */
+  rejectOnChain?: string[];
 }
 
 export type World = ReturnType<typeof world>;
@@ -228,6 +230,13 @@ export function world(o: WorldOptions = {}) {
     const hash = transactionHash(txJson);
     const now = BigInt(t);
     const out: BoardEvent[] = [];
+    /** The contract refuses: the transaction is final but failed, and the real board answers it like any other, with no events. */
+    const rejected = () => {
+      state.relayed.push(txJson);
+      txs.set(hash, { state: "finalized", failed: true, events: [] });
+      return [];
+    };
+    if (o.rejectOnChain?.includes(entrypoint)) return rejected();
     if (entrypoint === "post") {
       let at = 0;
       const kind: BountyKind = param[at++] === 0 ? "Exclusive" : "Contest";
@@ -269,12 +278,12 @@ export function world(o: WorldOptions = {}) {
         b.entries.push({ worker: sender, agent: 1418n, workHash });
         out.push(event(b, { type: "Entered", id, entryId: b.entries.length - 1, worker: sender, agent: 1418n, workHash }, hash));
       } else if (entrypoint === "accept") {
-        if (b.status.type !== "Submitted") throw new BoardToolError("submit_signed", "MCP error -32603: the transaction failed: nothing to accept");
+        if (b.status.type !== "Submitted") return rejected();
         b.status = { type: "Accepted", worker: b.status.worker, at: now, workHash: b.status.workHash };
         b.acceptedWork = { workHash: b.status.workHash, worker: b.status.worker };
         out.push(event(b, { type: "Accepted", id, worker: b.status.worker, auto: false }, hash));
       } else if (entrypoint === "reject") {
-        if (b.status.type !== "Submitted") throw new BoardToolError("submit_signed", "MCP error -32603: the transaction failed: nothing to reject");
+        if (b.status.type !== "Submitted") return rejected();
         const rh = param.subarray(8, 40).toString("hex");
         b.rejections++;
         b.status = { type: "Claimed", worker: b.status.worker, agent: b.status.agent };

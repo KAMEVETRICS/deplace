@@ -33,6 +33,20 @@ export type Settled = { record: PendingTx; landed: true; failed: boolean; events
 /** How soon to look again at a transaction the node has but not yet finalized. */
 const PENDING_RECHECK_MS = 10_000;
 
+/** The contract event that shows each action happened. The board answers a transaction the contract rejected like any other, with no events. */
+const PROOF: Record<SendStep["expected"]["entrypoint"], string[]> = {
+  claim: ["Claimed"],
+  enter: ["Entered"],
+  submit: ["Submitted"],
+  post: ["Posted"],
+  accept: ["Accepted"],
+  reject: ["Rejected", "RejectedFinal"],
+  award: ["Awarded"],
+  cancel: ["Cancelled"],
+};
+
+const asRelayed = (events: BoardEvent[]): Relayed["events"] => events.map((e) => ({ type: e.type, ...("id" in e ? { id: e.id.toString() } : {}) }));
+
 const iso = (ms: number) => new Date(ms).toISOString();
 const what = (r: { action: string; bountyId: string | null }) => `${r.action}${r.bountyId ? ` of bounty ${r.bountyId}` : ""}`;
 
@@ -83,13 +97,34 @@ export class Relay {
     const commitRef = step.onSigned?.(hash) || undefined;
     const expiresAt = Number(Transaction.signableFromJSON(JSON.parse(signed)).header.expiry.expiryEpochSeconds) * 1000;
     this.o.pending.add({ kind: "tx", action: step.action, bountyId: step.bountyId, hash, expiresAt, ...(commitRef ? { commitRef } : {}) });
-    const r = await this.o.board.relay(signed); // any failure keeps the record: the transaction may still land
-    this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
+    let r = await this.o.board.relay(signed); // any failure keeps the record: the transaction may still land
     if (r.txHash !== hash) {
       // It went through, but lost answers could no longer be looked up: stop before the next one.
       this.stopped = `the board names transaction ${r.txHash} what the kit hashed as ${hash}, so the kit could not find its own transactions after a lost answer; it signs nothing more until restarted (check ${r.link})`;
       this.o.log(this.stopped);
     }
+    const proof = PROOF[step.expected.entrypoint];
+    if (!r.events.some((e) => proof.includes(e.type))) {
+      // No proof in the board's answer: the chain decides whether it failed, went through, or isn't known yet.
+      const out = await this.o.chain.txOutcome(hash);
+      if (out.state === "finalized" && out.failed) {
+        this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
+        if (commitRef) {
+          const budget = await this.o.budget();
+          if (budget.has(commitRef)) budget.remove(commitRef);
+        }
+        throw new KitError(`the contract rejected the ${what(step)}, so nothing changed (${r.link})`, false, { rejectedOnChain: true, txHash: hash, link: r.link });
+      }
+      if (out.state !== "finalized" || !out.events.some((e) => proof.includes(e.type))) {
+        throw new KitError(`the ${what(step)} was sent, but neither the board nor the chain shows its outcome yet (${r.link}); call the same tool again to see what happened`, true, {
+          outcomeUnknown: true,
+          txHash: hash,
+          link: r.link,
+        });
+      }
+      r = { ...r, events: asRelayed(out.events) };
+    }
+    this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
     this.o.log(`${what(step)}: ${r.link}`);
     return r;
   }

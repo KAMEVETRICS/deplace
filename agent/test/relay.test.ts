@@ -60,6 +60,9 @@ const claimStep = (bountyId: string, onSigned?: SendStep["onSigned"]): SendStep 
   onSigned,
 });
 
+const CLAIMED: BoardEvent = { type: "Claimed", id: 5n, worker: me.address, agent: 1418n };
+const answer = (txJson: string, events: Relayed["events"] = [{ type: "Claimed", id: "5" }]): Relayed => ({ txHash: transactionHash(txJson), link: "l", events });
+
 interface WorldOptions {
   /** What board.relay does with a signed transaction. Default: lands it and answers with its hash. */
   relay?: (txJson: string, w: World) => Promise<Relayed>;
@@ -93,8 +96,8 @@ function world(o: WorldOptions = {}) {
       if (o.relay) return o.relay(txJson, w);
       w.relayed.push(txJson);
       const hash = transactionHash(txJson);
-      outcomes.set(hash, { state: "finalized", failed: false, events: [] });
-      return { txHash: hash, link: `https://ccdexplorer.io/testnet/transaction/${hash}`, events: [] };
+      outcomes.set(hash, { state: "finalized", failed: false, events: [CLAIMED] });
+      return { txHash: hash, link: `https://ccdexplorer.io/testnet/transaction/${hash}`, events: [{ type: "Claimed", id: "5" }] };
     },
     config: async () => ({ contract: o.contract ?? { index: "13001", subindex: "0" }, escrowAccount: addr(4), rewardToken: "EUDemo", decimals: 6, faucetUrl: null }),
   };
@@ -140,8 +143,7 @@ describe("the kit's relay", () => {
     const w = world({
       relay: async (txJson, w) => {
         seen = w.pending.list();
-        const hash = transactionHash(txJson);
-        return { txHash: hash, link: "l", events: [] };
+        return answer(txJson);
       },
     });
     const relay = relayFor(w);
@@ -182,7 +184,7 @@ describe("the kit's relay", () => {
         events.push(`start ${hash.slice(0, 6)}`);
         await new Promise((r) => setTimeout(r, 20));
         events.push(`end ${hash.slice(0, 6)}`);
-        return { txHash: hash, link: "l", events: [] };
+        return answer(txJson);
       },
     });
     const relay = relayFor(w);
@@ -215,10 +217,49 @@ describe("the kit's relay", () => {
   });
 
   it("stops signing after the board names a transaction by another hash", async () => {
-    const w = world({ relay: async () => ({ txHash: "ff".repeat(32), link: "l", events: [] }) });
+    const w = world({ relay: async () => ({ txHash: "ff".repeat(32), link: "l", events: [{ type: "Claimed", id: "5" }] }) });
     const relay = relayFor(w);
     await relay.turn(() => relay.send(preparedClaim(5n), claimStep("5"))); // it went through; the kit can no longer track its transactions
     await expect(relay.turn(() => relay.send(preparedClaim(6n, 2n), claimStep("6")))).rejects.toBeInstanceOf(RailViolation);
+  });
+
+  it("reports a transaction the contract rejected, and frees the commitment written for it", async () => {
+    const w = world({
+      relay: async (txJson, w) => {
+        w.outcomes.set(transactionHash(txJson), { state: "finalized", failed: true, events: [] });
+        return answer(txJson, []); // the board answers a rejected transaction like any other
+      },
+    });
+    const relay = relayFor(w);
+    const step = claimStep("5", (hash) => {
+      w.budget.commit(`post-tx:${hash}`, 1_000_000n);
+      return `post-tx:${hash}`;
+    });
+    const failure = await relay.turn(() => relay.send(preparedClaim(5n), step)).catch((e) => e);
+    expect(failure).toBeInstanceOf(KitError);
+    expect(failure).toMatchObject({ retryable: false, extra: { rejectedOnChain: true } });
+    expect(w.pending.list()).toEqual([]);
+    expect(w.budget.spentLast24h()).toBe(0n);
+  });
+
+  it("takes the chain's events when the board's answer leaves them out", async () => {
+    const w = world({
+      relay: async (txJson, w) => {
+        w.outcomes.set(transactionHash(txJson), { state: "finalized", failed: false, events: [CLAIMED] });
+        return answer(txJson, []);
+      },
+    });
+    const relay = relayFor(w);
+    const r = await relay.turn(() => relay.send(preparedClaim(5n), claimStep("5")));
+    expect(r.events).toEqual([{ type: "Claimed", id: "5" }]);
+    expect(w.pending.list()).toEqual([]);
+  });
+
+  it("keeps the record when neither the board nor the chain shows the outcome yet", async () => {
+    const w = world({ relay: async (txJson) => answer(txJson, []) }); // the kit's node hasn't seen it yet
+    const relay = relayFor(w);
+    expect(await relay.turn(() => relay.send(preparedClaim(5n), claimStep("5"))).catch((e) => e)).toMatchObject({ retryable: true, extra: { outcomeUnknown: true } });
+    expect(w.pending.list()).toHaveLength(1);
   });
 
   it("moves a landed post's commitment to its bounty and drops an unsent one's", async () => {
