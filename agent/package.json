@@ -7,6 +7,8 @@
   "scripts": {
     "start": "tsx src/main.ts",
     "kit": "node bin/kit.mjs",
+    "build:npm": "node scripts/build-npm.mjs",
+    "check:npm": "tsx scripts/check-npm-package.ts",
     "register": "tsx src/register.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"

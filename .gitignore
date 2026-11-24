@@ -8,3 +8,5 @@ dist/
 concordium-out/
 .superpowers/
 data/
+# copied from the repo's LICENSE by agent/scripts/build-npm.mjs
+agent/npm/LICENSE

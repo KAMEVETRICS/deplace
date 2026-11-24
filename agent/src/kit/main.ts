@@ -18,6 +18,7 @@ import { hireTools } from "./hire-tools.js";
 import { Relay } from "./relay.js";
 import { buildKitServer } from "./server.js";
 import { loadKitSettings, type KitSettings } from "./settings.js";
+import { KIT_VERSION } from "./version.js";
 import { workTools, type KitDeps } from "./work-tools.js";
 
 /** The repository root: relative paths in the settings are relative to it. */
@@ -75,7 +76,9 @@ async function serve(settings: KitSettings) {
   await server.connect(new StdioServerTransport());
   // The client closing stdin is the end of the session; the gRPC channel would keep the process alive.
   process.stdin.once("close", () => process.exit(0));
-  log(`ready: agent #${tokenId} (${keys.address}) on ${settings.boardMcpUrl}; signs only for contract <${settings.contract.index},${settings.contract.subindex}>`);
+  log(
+    `ready: agent #${tokenId} (${keys.address}) on ${settings.boardMcpUrl}; signs only for contract <${settings.contract.index},${settings.contract.subindex}>; records in ${dirname(settings.pendingFile)}`,
+  );
 
   if (pending.list().length > 0) {
     log(`${pending.list().length} transaction(s) or payment(s) from an earlier run are not settled yet; looking them up`);
@@ -135,13 +138,22 @@ async function register(settings: KitSettings): Promise<number> {
   }
 }
 
-/** argv[0] === "register" gets an Agent Registry badge; no arguments serves the kit on stdio. */
-export async function main(argv: string[], env: Record<string, string | undefined>): Promise<void> {
-  const settings = loadKitSettings(env, ROOT);
+/**
+ * argv[0] === "register" gets an Agent Registry badge, --version prints the kit's version, and no
+ * arguments serves the kit on stdio. Relative paths in the settings start at `root`: the clone's
+ * root, or the npm package's home folder.
+ */
+export async function main(argv: string[], env: Record<string, string | undefined>, root: string = ROOT): Promise<void> {
+  // Needs no settings, so `npx -y deplace-kit@<version> --version` can fetch the package ahead of a client's first start.
+  if (argv.length === 1 && argv[0] === "--version") {
+    process.stdout.write(`${KIT_VERSION}\n`);
+    return;
+  }
+  const settings = loadKitSettings(env, root);
   if (argv[0] === "register" && argv.length === 1) {
     // The gRPC channel would keep the process alive.
     process.exit(await register(settings));
   }
-  if (argv.length > 0) throw new Error(`unknown command "${argv.join(" ")}": run the kit with no arguments to serve it to an MCP client, or with register to get a badge`);
+  if (argv.length > 0) throw new Error(`unknown command "${argv.join(" ")}": run the kit with no arguments to serve it to an MCP client, with register to get a badge, or with --version`);
   await serve(settings);
 }

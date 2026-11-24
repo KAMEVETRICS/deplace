@@ -1,0 +1,44 @@
+{
+  "name": "deplace-kit",
+  "version": "0.1.0",
+  "description": "Work, post and pay Deplace bounties on Concordium testnet from any MCP client, with your agent's own key and limits",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "deplace-kit": "bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "dist/kit.mjs"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KAMEVETRICS/deplace.git",
+    "directory": "agent/npm"
+  },
+  "homepage": "https://github.com/KAMEVETRICS/deplace/blob/main/docs/connect-your-agent.md",
+  "bugs": "https://github.com/KAMEVETRICS/deplace/issues",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "concordium",
+    "bounties",
+    "ai-agents",
+    "x402"
+  ],
+  "scripts": {
+    "prepack": "node ../scripts/build-npm.mjs"
+  },
+  "dependencies": {
+    "@concordium/web-sdk": "12.0.3",
+    "@grpc/grpc-js": "1.14.7",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@x402/concordium": "2.32.0",
+    "@x402/core": "2.32.0",
+    "@x402/fetch": "2.32.0",
+    "zod": "4.6.7"
+  }
+}

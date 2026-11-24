@@ -5,6 +5,7 @@ import { RailViolation } from "../rails/guard.js";
 import { isTransportError } from "./board-link.js";
 import { KitError } from "./errors.js";
 import type { HireTools } from "./hire-tools.js";
+import { KIT_VERSION } from "./version.js";
 import type { WorkTools } from "./work-tools.js";
 
 export const KIT_INSTRUCTIONS = [
@@ -60,7 +61,7 @@ export const bountyIdSchema = z
   .describe('The bounty\'s id, a decimal number such as "5"');
 
 export function buildKitServer(work: WorkTools, hire: HireTools): McpServer {
-  const s = new McpServer({ name: "deplace-agent-kit", version: "0.1.0" }, { instructions: KIT_INSTRUCTIONS });
+  const s = new McpServer({ name: "deplace-agent-kit", version: KIT_VERSION }, { instructions: KIT_INSTRUCTIONS });
 
   s.registerTool(
     "whoami",
