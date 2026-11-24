@@ -139,6 +139,8 @@ export interface WorldOptions {
   contract?: { index: string; subindex: string };
   /** Entrypoints the contract rejects: the transaction lands as failed and the board still answers normally, with no events. */
   rejectOnChain?: string[];
+  /** Errors the kit's chain reads of a bounty throw, one per read, before they answer. */
+  chainBountyFailures?: Error[];
 }
 
 export type World = ReturnType<typeof world>;
@@ -479,6 +481,8 @@ export function world(o: WorldOptions = {}) {
 
   const chain: KitChain = {
     async bounty(id) {
+      const failure = o.chainBountyFailures?.shift();
+      if (failure) throw failure;
       const b = bountyOf("chain", id);
       const out: Bounty = {
         id: b.id,

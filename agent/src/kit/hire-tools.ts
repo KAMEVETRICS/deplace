@@ -1,5 +1,7 @@
 import { parseTokenAmount, type BountyKind } from "@deplace/shared";
+import { BoardToolError } from "../board-client.js";
 import { RailViolation } from "../rails/guard.js";
+import type { PendingTx } from "../rails/pending.js";
 import { awardStep, payStep, posterActionStep, postStep, rejectStep, type PayContext, type StepContext } from "../steps.js";
 import type { Relayed } from "../worker.js";
 import { isTransportError } from "./board-link.js";
@@ -21,6 +23,21 @@ export interface HireTools {
 const HOUR_MS = 3_600_000;
 /** The board's limit on a spec's input. */
 const MAX_INPUT_JSON = 2048;
+
+/** A failure in words: the board's JSON `error` when it has one. */
+function messageOf(e: unknown): string {
+  if (e instanceof BoardToolError) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(e.detail);
+    } catch {
+      return e.detail; // plain text from the board
+    }
+    const error = (parsed as { error?: unknown } | null)?.error;
+    return typeof error === "string" ? error : e.detail;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
 
 export function hireTools(d: KitDeps): HireTools {
   async function payContext(session: string): Promise<PayContext> {
@@ -55,6 +72,7 @@ export function hireTools(d: KitDeps): HireTools {
 
   /** Escrows the reward of a bounty this agent posted: only to the escrow account in the contract's configuration, only the reward on chain. */
   async function fund(id: bigint, session: string, deadline: number) {
+    await d.relay.settle((r) => r.action === "post", { wait: false }); // a post kept on record gets its commitment first
     const onChain = await d.chain.bounty(id);
     if (onChain.poster !== d.keys.address) throw new RailViolation(`refusing to fund bounty ${id}: it was posted by ${onChain.poster}, not this agent`);
     if (onChain.funding.type !== "NotFunded") throw new KitError(`bounty ${id} is already escrowed`, false);
@@ -95,6 +113,7 @@ export function hireTools(d: KitDeps): HireTools {
             bountyId: id,
             link: earlier.link,
             message: `your earlier post went through as bounty ${id}; nothing new was posted`,
+            ...(a.escrow ? { escrowed: false, warning: `it isn't escrowed yet: call fund_bounty with bounty_id ${id} to escrow its reward` } : {}),
             next: "check_status on it, or call post_bounty again if you meant a second bounty",
           };
         }
@@ -109,13 +128,39 @@ export function hireTools(d: KitDeps): HireTools {
         if (units <= 0n) throw new KitError("reward must be more than 0", false);
         const spec = { title: a.title, description: a.description, taskKind: a.task_kind, input: a.input, kind: a.kind, reward: a.reward, deadline: d.now() + Math.round(a.deadline_hours * HOUR_MS) };
         const budget = await d.budget();
-        // Only prepare_post needs the session, and it comes before signing, so a fresh login may repeat it safely.
-        const { id, relayed } = await d.link.withSession(
-          (session) => postStep({ ...stepContext(d, deadline, session), keys: d.keys, chain: d.chain, budget, token: { id: d.token.id, decimals } }, spec),
-          deadline,
-        );
+        const before = new Set(d.pending.list().flatMap((r) => (r.kind === "tx" ? [r.hash] : [])));
+        let posted: Awaited<ReturnType<typeof postStep>>;
+        try {
+          // Only prepare_post needs the session, and it comes before signing, so a fresh login may repeat it safely.
+          posted = await d.link.withSession(
+            (session) => postStep({ ...stepContext(d, deadline, session), keys: d.keys, chain: d.chain, budget, token: { id: d.token.id, decimals } }, spec),
+            deadline,
+          );
+        } catch (e) {
+          // Once the post was sent, a failure must not read as "try again": the next call reports it from the chain.
+          const sent = d.pending.list().find((r): r is PendingTx => r.kind === "tx" && r.action === "post" && !before.has(r.hash));
+          if (!sent || (e instanceof KitError && e.extra.outcomeUnknown)) throw e;
+          throw new KitError(
+            `the post was sent and may have gone through, but then ${messageOf(e)}; call post_bounty again to see it: the kit reports an earlier post instead of posting twice`,
+            true,
+            { postSent: true, txHash: sent.hash },
+          );
+        }
+        d.relay.done(posted.txHash);
+        const { id, relayed } = posted;
         const out: Record<string, unknown> = { bountyId: id.toString(), txHash: relayed.txHash, link: relayed.link, reward: a.reward, token: d.token.id, deadline: new Date(spec.deadline).toISOString() };
-        if (a.escrow) Object.assign(out, await d.link.withSession((session) => fund(id, session, deadline), deadline));
+        if (a.escrow) {
+          // The bounty exists now, whatever happens to the escrow: report it either way.
+          try {
+            Object.assign(out, await d.link.withSession((session) => fund(id, session, deadline), deadline));
+          } catch (e) {
+            Object.assign(out, {
+              escrowed: false,
+              warning: `posted, but escrowing the reward failed: ${messageOf(e)}; call fund_bounty with bounty_id ${id} to try again`,
+              ...(e instanceof KitError && e.extra.outcomeUnknown ? { paymentOutcomeUnknown: true, retryAfter: e.extra.retryAfter } : {}),
+            });
+          }
+        }
         out.next = a.escrow ? "wait for a worker; check_status shows submissions" : "wait for a worker; once work is submitted, accept it, and get_work pays the worker";
         return out;
       });
@@ -140,6 +185,7 @@ export function hireTools(d: KitDeps): HireTools {
       const deadline = deadlineFor(d);
       return d.relay.turn(() =>
         d.link.withSession(async (session) => {
+          await d.relay.settle((r) => r.action === "post", { wait: false }); // a post kept on record gets its commitment first
           const work = await d.link.call<{ paymentRequired: boolean; url?: string; items?: unknown }>("fetch_work", { session, bounty_id: id }, deadline);
           if (!work.paymentRequired) return { bountyId: id, items: work.items, note: OTHER_PEOPLES_TEXT, next: "done" };
           if (d.relay.landedPayments.has(id)) {

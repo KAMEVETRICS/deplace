@@ -124,12 +124,18 @@ export class Relay {
       }
       r = { ...r, events: asRelayed(out.events) };
     }
-    this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
+    if (!step.keep) this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
     this.o.log(`${what(step)}: ${r.link}`);
     return r;
   }
 
-  async settle(match: (r: PendingTx) => boolean): Promise<Settled[]> {
+  /** Forgets a kept record once its result has been reported. */
+  done(hash: string): void {
+    this.o.pending.remove((x) => x.kind === "tx" && x.hash === hash);
+  }
+
+  /** With `wait: false`, a record that may still land is skipped instead of refused. */
+  async settle(match: (r: PendingTx) => boolean, opts: { wait?: boolean } = {}): Promise<Settled[]> {
     const settled: Settled[] = [];
     let waitUntil: number | null = null;
     let waitingFor = "";
@@ -141,9 +147,14 @@ export class Relay {
         this.o.pending.remove((x) => x.kind === "tx" && x.hash === r.hash);
         settled.push({ record: r, landed: true, failed: out.failed, events: out.events, link: txLink(r.hash) });
       } else if (out.state === "absent" && this.now() > r.expiresAt) {
-        if (r.commitRef) (await this.o.budget()).remove(r.commitRef);
+        if (r.commitRef) {
+          const budget = await this.o.budget();
+          if (budget.has(r.commitRef)) budget.remove(r.commitRef);
+        }
         this.o.pending.remove((x) => x.kind === "tx" && x.hash === r.hash);
         settled.push({ record: r, landed: false });
+      } else if (opts.wait === false) {
+        continue;
       } else {
         const until = out.state === "pending" ? this.now() + PENDING_RECHECK_MS : r.expiresAt;
         if (waitUntil === null || until > waitUntil) waitUntil = until;
@@ -159,9 +170,11 @@ export class Relay {
   /** A landed post's reward moves to its bounty; a post that failed on chain frees it. */
   private async applyPost(commitRef: string, failed: boolean, events: BoardEvent[]) {
     const budget = await this.o.budget();
+    if (!budget.has(commitRef)) return; // already moved when the post was reported, or the budget file was reset
     if (failed) return budget.remove(commitRef);
+    // The events come from the kit's own chain lookup, so the id is the post's real one.
     const posted = events.find((e) => e.type === "Posted");
-    if (posted && posted.type === "Posted") budget.rename(commitRef, `bounty:${posted.id}`);
+    if (posted && posted.type === "Posted" && !budget.has(`bounty:${posted.id}`)) budget.rename(commitRef, `bounty:${posted.id}`);
   }
 
   async settlePayments(): Promise<{ landed: string[]; released: string[] }> {

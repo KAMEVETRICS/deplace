@@ -25,6 +25,8 @@ export interface SendStep {
   bountyId: string | null;
   expected: ExpectedCall;
   onSigned?: (hash: string) => string | void;
+  /** Keep the pending record after a normal answer, until the caller has reported the result (the kit's relay.done). */
+  keep?: boolean;
 }
 
 /** Checks a prepared transaction against the rails and what was asked, signs it and has the board relay it. */
@@ -85,7 +87,7 @@ export interface PostContext extends StepContext {
  * Posts within the budget. The reward is committed before the post is sent (as post-tx:<hash>)
  * and moved to the bounty once it is final; the bounty on chain must then be what was asked.
  */
-export async function postStep(c: PostContext, spec: SpecFields): Promise<{ id: bigint; units: bigint; relayed: Relayed }> {
+export async function postStep(c: PostContext, spec: SpecFields): Promise<{ id: bigint; units: bigint; relayed: Relayed; txHash: string }> {
   const units = parseTokenAmount(spec.reward, c.token.decimals);
   c.budget.check(units); // before anything is prepared
   const specHash = specHashFor(spec, c.keys.address, c.agent, c.token.id);
@@ -100,15 +102,20 @@ export async function postStep(c: PostContext, spec: SpecFields): Promise<{ id: 
     deadline: spec.deadline,
   });
   let ref: string | null = null;
+  let txHash = "";
   const relayed = await c.send(prepared, {
     action: "post",
     bountyId: null,
     expected: { entrypoint: "post", kind: spec.kind, posterAgent: c.agent, specHash, reward: units, deadline: BigInt(spec.deadline) },
     onSigned: (hash) => {
+      txHash = hash;
       ref = `post-tx:${hash}`;
       c.budget.commit(ref, units);
       return ref;
     },
+    // A post that landed stays on record until it has been reported, so a failure after this point
+    // never lets a second post through.
+    keep: true,
   });
   const idText = relayed.events.find((e) => e.type === "Posted")?.id;
   if (idText === undefined) throw new Error("post went through but no Posted event came back");
@@ -123,7 +130,7 @@ export async function postStep(c: PostContext, spec: SpecFields): Promise<{ id: 
     );
   }
   c.budget.rename(ref, `bounty:${id}`);
-  return { id, units, relayed };
+  return { id, units, relayed, txHash };
 }
 
 export interface PayContext {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Parameter, Transaction } from "@concordium/web-sdk";
 import { encodeClaim, encodeIdEntry, encodeIdHash, encodeU64 } from "@deplace/shared";
+import { BoardToolError } from "../src/board-client.js";
 import { reasonHash } from "../src/rails/guard.js";
 import { ATTACKER, BADGE, WORKER, kitClient, me, preparedCall, sha, world, type World, type WorldOptions } from "./helpers/world.js";
 
@@ -257,6 +258,36 @@ describe("the agent kit: posting and paying", () => {
     expect(posts(w)).toHaveLength(1);
     expect(c.budget.spentLast24h()).toBe(1_000_000n);
     expect(() => c.budget.reserve("bounty:9", 1_000_000n)).not.toThrow(); // the commitment moved to the bounty
+  });
+
+  it("reports the post instead of posting twice when reading it back fails after it landed", async () => {
+    const { w, c } = await setup({ chainBountyFailures: [Object.assign(new Error("14 UNAVAILABLE: No connection established"), { code: "UNAVAILABLE" })] });
+    const first = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect(first).toMatchObject({ isError: true, body: { retryable: true, postSent: true } });
+    expect(first.body.error).not.toMatch(/nothing was signed or sent/);
+    const again = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    expect(again.isError).toBe(false);
+    expect(again.body.message).toMatch(/earlier post went through as bounty 9/);
+    expect(posts(w)).toHaveLength(1);
+    expect(c.budget.spentLast24h()).toBe(1_000_000n);
+    expect(() => c.budget.reserve("bounty:9", 1_000_000n)).not.toThrow();
+  });
+
+  it("keeps the post and says so when escrowing its reward fails", async () => {
+    const { w, c } = await setup({ fail: { prepare_fund: [new BoardToolError("prepare_fund", JSON.stringify({ error: "the sponsor cannot pay fees right now" }))] } });
+    const r = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2, escrow: true });
+    expect(r.isError).toBe(false);
+    expect(r.body).toMatchObject({ bountyId: "9", escrowed: false, warning: expect.stringMatching(/fund_bounty/) });
+    expect(posts(w)).toHaveLength(1);
+    expect((await c.call("fund_bounty", { bounty_id: "9" })).isError).toBe(false);
+    expect(w.state.paid).toEqual(["http://board.test/bounties/9/fund"]);
+  });
+
+  it("says an earlier escrowed post isn't escrowed yet when it reports it after a lost answer", async () => {
+    const { c } = await setup({ loseRelay: 1 });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2, escrow: true });
+    const again = await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2, escrow: true });
+    expect(again.body).toMatchObject({ bountyId: "9", escrowed: false, warning: expect.stringMatching(/fund_bounty/) });
   });
 
   it("waits out a lost payment and pays again only once its nonce shows it never landed", async () => {
