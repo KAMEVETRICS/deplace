@@ -1,0 +1,34 @@
+# Publishes the agent kit (agent/npm) to npm when a tag like kit-v0.1.1 is pushed. It uses npm's
+# trusted publishing: no token is stored anywhere, and npm attaches provenance that ties each
+# release to this repository and this workflow. The first version goes up by hand; see
+# agent/npm/RELEASING.md.
+name: Release the agent kit
+
+on:
+  push:
+    tags: ["kit-v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm's trusted publishing signs in with GitHub's OIDC token
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - run: npm ci --no-audit --no-fund
+      - name: The tag names the package's version
+        run: test "$GITHUB_REF_NAME" = "kit-v$(node -p "require('./agent/npm/package.json').version")"
+      - run: npm run typecheck -w agent
+      - run: npm test -w agent
+      - name: Pack, install and start the package as users will
+        run: npm run check:npm -w agent
+      - name: Publish
+        working-directory: agent/npm
+        run: npm publish
