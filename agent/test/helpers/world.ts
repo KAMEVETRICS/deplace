@@ -140,6 +140,8 @@ export interface WorldOptions {
   rejectOnChain?: string[];
   /** Errors the kit's chain reads of a bounty throw, one per read, before they answer. */
   chainBountyFailures?: Error[];
+  /** The proxy answers the first paid x402 request with this HTTP status and an HTML page; nothing reaches the board. */
+  x402FailAfterPayment?: number;
 }
 
 export type World = ReturnType<typeof world>;
@@ -165,6 +167,7 @@ export function world(o: WorldOptions = {}) {
     loseRelay: o.loseRelay ?? 0,
     dropRelay: o.dropRelay ?? 0,
     loseX402: o.loseX402 ?? 0,
+    x402Failed: false,
   };
 
   /** A bounty as the board would have it, its spec stored under its hash. */
@@ -465,6 +468,10 @@ export function world(o: WorldOptions = {}) {
       if (state.loseX402 > 0) {
         state.loseX402--;
         throw new TypeError("fetch failed"); // the paid request never reaches the board
+      }
+      if (o.x402FailAfterPayment && !state.x402Failed) {
+        state.x402Failed = true;
+        return new Response(`<html><body><h1>${o.x402FailAfterPayment} Bad Gateway</h1>${"<p>proxy</p>".repeat(300)}</body></html>`, { status: o.x402FailAfterPayment, headers: { "content-type": "text/html" } });
       }
       state.paid.push(req.url);
       state.nonce++; // the payment used the account's nonce

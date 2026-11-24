@@ -53,20 +53,26 @@ export function hireTools(d: KitDeps): HireTools {
     };
   }
 
-  /** payStep, with a dropped connection reported the way the kit will deal with it. */
+  /**
+   * payStep, with every failure after the payment was signed and sent reported as an unknown outcome:
+   * a lost answer and an error page from the proxy alike may hide a payment that settled.
+   */
   async function pay(c: PayContext, o: Parameters<typeof payStep>[1]): Promise<Response> {
     try {
       return await payStep(c, o);
     } catch (e) {
-      if (!isTransportError(e)) throw e;
       const sent = d.pending.list().find((r) => r.kind === "payment" && r.bountyId === o.bountyId.toString() && r.purpose === o.purpose);
-      if (!sent) throw new KitError(`could not reach the board to pay for bounty ${o.bountyId}; nothing was paid`, true);
-      const after = new Date(sent.expiresAt).toISOString();
-      throw new KitError(
-        `the payment for bounty ${o.bountyId} was sent but the board's answer was lost; after ${after} the kit checks on chain whether it went through, and it signs nothing else before then`,
-        true,
-        { outcomeUnknown: true, retryAfter: after },
-      );
+      if (sent) {
+        const after = new Date(sent.expiresAt).toISOString();
+        const why = isTransportError(e) ? "the board's answer was lost" : `the board answered with an error (${messageOf(e).slice(0, 200)})`;
+        throw new KitError(
+          `the payment for bounty ${o.bountyId} was sent, but ${why}; after ${after} the kit checks on chain whether it went through, and it signs nothing else before then`,
+          true,
+          { outcomeUnknown: true, retryAfter: after },
+        );
+      }
+      if (isTransportError(e)) throw new KitError(`could not reach the board to pay for bounty ${o.bountyId}; nothing was paid`, true);
+      throw e;
     }
   }
 

@@ -328,6 +328,17 @@ describe("the agent kit: posting and paying", () => {
     expect(await c.call("accept", { bounty_id: "9" })).toMatchObject({ isError: true, body: { rejectedOnChain: true } });
   });
 
+  it("reports an HTTP error after a payment was sent as an unknown outcome, briefly", async () => {
+    const { w, c } = await setup({ x402FailAfterPayment: 502 });
+    await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
+    w.workerSubmits("9", "the facts");
+    await c.call("accept", { bounty_id: "9" });
+    const r = await c.call("get_work", { bounty_id: "9" });
+    expect(r).toMatchObject({ isError: true, body: { retryable: true, outcomeUnknown: true, retryAfter: expect.any(String) } });
+    expect(r.body.error.length).toBeLessThan(600);
+    expect(w.state.paid).toEqual([]);
+  });
+
   it("rejects with the reason's hash, and says the third rejection is final", async () => {
     const { w, c } = await setup();
     await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });
