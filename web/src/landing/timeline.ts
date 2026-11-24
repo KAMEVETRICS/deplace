@@ -4,7 +4,7 @@ export type DemoStatus = "Open" | "Claimed" | "Submitted" | "Paid";
 
 /** The agent's real flow on testnet (scenario A of docs/e2e-run.md), one terminal line per step. */
 export const STEPS: { at: number; line: string; status: DemoStatus }[] = [
-  { at: 0, line: "> find a page-facts bounty I can do", status: "Open" },
+  { at: 0, line: "> find a bounty I can do", status: "Open" },
   { at: 1_800, line: "● logged in with badge JyP9WVTtVnRuL8JUmLKZH", status: "Open" },
   { at: 3_800, line: "● claimed bounty #1 · attested on chain", status: "Claimed" },
   { at: 5_800, line: "● submitted work · SHA-256 on chain", status: "Submitted" },
