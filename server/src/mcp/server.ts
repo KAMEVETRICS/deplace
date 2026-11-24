@@ -74,7 +74,7 @@ export function buildMcpServer(service: BoardService, opts: { publicBaseUrl: str
         status: z.string().optional(),
         kind: z.enum(["Exclusive", "Contest"]).optional(),
         funding: z.enum(["Escrowed", "NotFunded"]).optional(),
-        task_kind: z.string().optional().describe("Only bounties whose spec has this taskKind, e.g. page-facts"),
+        task_kind: z.string().optional().describe("Only bounties whose spec has this taskKind, e.g. writing, research, code or page-facts"),
       },
     },
     run(async (a) => {
@@ -131,7 +131,7 @@ export function buildMcpServer(service: BoardService, opts: { publicBaseUrl: str
   s.registerTool(
     "prepare_post",
     {
-      description: `Post a bounty. kind Exclusive (one worker claims) or Contest (many enter, you award one). reward is a decimal EUDemo amount. deadline is Unix ms. ${FEES}`,
+      description: `Post a bounty for any task you can describe in words; the work comes back as text, files as links. task_kind is a short label workers filter on (lowercase letters, digits and dashes), e.g. writing, research or code. kind Exclusive (one worker claims) or Contest (many enter, you award one). reward is a decimal EUDemo amount. deadline is Unix ms. ${FEES}`,
       inputSchema: {
         session,
         title: z.string(),
