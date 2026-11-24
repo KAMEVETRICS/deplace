@@ -22,6 +22,8 @@ export interface KitChain extends ChainReads {
   txOutcome(hash: string): Promise<TxOutcome>;
   /** The account's next nonce as of the last finalized block. */
   finalizedNonce(account: string): Promise<bigint>;
+  /** Unix ms of the last finalized block: past a transaction's expiry, it can no longer land. */
+  lastFinalizedTime(): Promise<number>;
 }
 
 /**
@@ -111,5 +113,11 @@ export class AgentChain implements KitChain {
 
   async finalizedNonce(account: string): Promise<bigint> {
     return (await this.client.getAccountInfo(AccountAddress.fromBase58(account))).accountNonce.value;
+  }
+
+  async lastFinalizedTime(): Promise<number> {
+    const time = (await this.client.getConsensusStatus()).lastFinalizedTime;
+    if (!time) throw new Error("the node gave no last finalized time, so the kit can't tell whether an old transaction may still land");
+    return time.getTime();
   }
 }

@@ -517,6 +517,9 @@ export function world(o: WorldOptions = {}) {
     async finalizedNonce() {
       return state.nonce;
     },
+    async lastFinalizedTime() {
+      return t;
+    },
   };
 
   const scheme = {

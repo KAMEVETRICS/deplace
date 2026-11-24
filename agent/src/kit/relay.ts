@@ -20,7 +20,7 @@ export interface RelayOptions {
   board: RelayBoard;
   keys: AgentKeys;
   guard: GuardOptions;
-  chain: Pick<KitChain, "txOutcome" | "finalizedNonce">;
+  chain: Pick<KitChain, "txOutcome" | "finalizedNonce" | "lastFinalizedTime">;
   pending: PendingStore;
   lock: AccountLock;
   budget: () => Promise<SpendBudget>;
@@ -140,6 +140,7 @@ export class Relay {
     const settled: Settled[] = [];
     let waitUntil: number | null = null;
     let waitingFor = "";
+    const pastExpiry = this.pastExpiry();
     for (const r of this.o.pending.list()) {
       if (r.kind !== "tx" || !match(r)) continue;
       const out = await this.o.chain.txOutcome(r.hash);
@@ -147,7 +148,7 @@ export class Relay {
         if (r.commitRef) await this.applyPost(r.commitRef, out.failed, out.events);
         this.o.pending.remove((x) => x.kind === "tx" && x.hash === r.hash);
         settled.push({ record: r, landed: true, failed: out.failed, events: out.events, link: txLink(r.hash) });
-      } else if (out.state === "absent" && this.now() > r.expiresAt) {
+      } else if (out.state === "absent" && (await pastExpiry(r.expiresAt))) {
         if (r.commitRef) {
           const budget = await this.o.budget();
           if (budget.has(r.commitRef)) budget.remove(r.commitRef);
@@ -157,7 +158,7 @@ export class Relay {
       } else if (opts.wait === false) {
         continue;
       } else {
-        const until = out.state === "pending" ? this.now() + PENDING_RECHECK_MS : r.expiresAt;
+        const until = out.state === "pending" || this.now() > r.expiresAt ? this.now() + PENDING_RECHECK_MS : r.expiresAt;
         if (waitUntil === null || until > waitUntil) waitUntil = until;
         waitingFor = what(r);
       }
@@ -178,14 +179,29 @@ export class Relay {
     if (posted && posted.type === "Posted" && !budget.has(`bounty:${posted.id}`)) budget.rename(commitRef, `bounty:${posted.id}`);
   }
 
+  /**
+   * Whether the chain has finalized past an expiry, so a transaction that isn't on chain can never
+   * land. The chain's last finalized time decides, not this PC's clock (read once per call).
+   */
+  private pastExpiry(): (expiresAt: number) => Promise<boolean> {
+    let finalized: Promise<number> | null = null;
+    return async (expiresAt) => {
+      if (this.now() <= expiresAt) return false;
+      finalized ??= this.o.chain.lastFinalizedTime();
+      return (await finalized) > expiresAt;
+    };
+  }
+
   async settlePayments(): Promise<{ landed: string[]; released: string[] }> {
     const landed: string[] = [];
     const released: string[] = [];
     let waitUntil: number | null = null;
+    const pastExpiry = this.pastExpiry();
     for (const r of this.o.pending.list()) {
       if (r.kind !== "payment") continue;
-      if (this.now() <= r.expiresAt) {
-        if (waitUntil === null || r.expiresAt > waitUntil) waitUntil = r.expiresAt;
+      if (!(await pastExpiry(r.expiresAt))) {
+        const until = this.now() > r.expiresAt ? this.now() + PENDING_RECHECK_MS : r.expiresAt;
+        if (waitUntil === null || until > waitUntil) waitUntil = until;
         continue;
       }
       // Expired: if the account's nonce never got past the payment's, it never landed and never can.

@@ -10,6 +10,8 @@ export interface GuardedPaymentOptions {
   asset: string;
   /** Per-payment cap in the token's smallest units. */
   maxAtomic: bigint;
+  /** The longest a signed payment may stay open (the terms' maxTimeoutSeconds); default 600. A lost payment holds the account until it expires. */
+  maxTimeoutSeconds?: number;
   /** What the agent expects to pay right now: the escrow account or the worker on record, and the committed reward. */
   expected: () => { payTo: string; amount: string } | null;
   /**
@@ -34,7 +36,8 @@ export function guardedPaymentClient(o: GuardedPaymentOptions): x402Client {
   const onlyExpected = (_version: number, reqs: PaymentRequirements[]): PaymentRequirements[] => {
     const e = o.expected();
     if (!e) return [];
-    return reqs.filter((r) => r.asset === o.asset && r.payTo === e.payTo && r.amount === e.amount);
+    const maxTimeout = o.maxTimeoutSeconds ?? 600;
+    return reqs.filter((r) => r.asset === o.asset && r.payTo === e.payTo && r.amount === e.amount && r.maxTimeoutSeconds <= maxTimeout);
   };
   const client = x402Client.fromConfig({
     schemes: [{ network: o.network, client: o.scheme }],

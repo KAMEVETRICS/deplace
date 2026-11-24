@@ -87,6 +87,8 @@ function world(o: WorldOptions = {}) {
     budget,
     pending,
     nonce: o.nonce ?? 7n,
+    /** The chain's last finalized time; null follows this PC's clock. */
+    chainTime: null as number | null,
     relayed: [] as string[],
     board: null as unknown as RelayBoard,
     lock: new AccountLock(join(dir, "agent.lock"), { pid: 200, isAlive: () => true }),
@@ -109,7 +111,11 @@ function relayFor(w: World) {
     board: w.board,
     keys: me,
     guard: { account: me.address, contract: DEPLACE, allowFees: false },
-    chain: { txOutcome: async (hash) => w.outcomes.get(hash) ?? { state: "absent" }, finalizedNonce: async () => w.nonce },
+    chain: {
+      txOutcome: async (hash) => w.outcomes.get(hash) ?? { state: "absent" },
+      finalizedNonce: async () => w.nonce,
+      lastFinalizedTime: async () => w.chainTime ?? w.clock.now(),
+    },
     pending: w.pending,
     lock: w.lock,
     budget: async () => w.budget,
@@ -174,6 +180,33 @@ describe("the kit's relay", () => {
     w.clock.advance(6 * 60_000);
     expect(await relay.turn(() => relay.settle(() => true))).toEqual([expect.objectContaining({ landed: false })]);
     expect(w.pending.list()).toEqual([]);
+  });
+
+  it("calls a lost transaction never-landed only once the chain has finalized past its expiry", async () => {
+    const w = world({ relay: neverSent });
+    const relay = relayFor(w);
+    await relay.turn(() => relay.send(preparedClaim(5n), claimStep("5"))).catch(() => undefined);
+    w.chainTime = w.clock.now(); // the chain's finalized time stops here
+    w.clock.advance(6 * 60_000); // while this PC's clock runs on
+    expect(await relay.turn(() => relay.settle(() => true)).catch((e) => e)).toMatchObject({ retryable: true });
+    expect(w.pending.list()).toHaveLength(1);
+    w.chainTime = w.clock.now();
+    expect(await relay.turn(() => relay.settle(() => true))).toEqual([expect.objectContaining({ landed: false })]);
+  });
+
+  it("releases a lost payment's booking only once the chain has finalized past its expiry", async () => {
+    const w = world({ nonce: 7n });
+    const relay = relayFor(w);
+    w.budget.commit("bounty:9", 1_000_000n);
+    w.budget.reserve("bounty:9", 1_000_000n);
+    w.pending.add({ kind: "payment", purpose: "deliver", bountyId: "9", ref: "bounty:9", nonce: "7", amount: "1000000", expiresAt: w.clock.now() + 295_000 });
+    w.chainTime = w.clock.now();
+    w.clock.advance(300_000);
+    expect(await relay.turn(async () => "turn ran").catch((e) => e)).toMatchObject({ retryable: true });
+    expect(() => w.budget.reserve("bounty:9", 1n)).toThrow(/already paid/);
+    w.chainTime = w.clock.now();
+    expect(await relay.turn(async () => "turn ran")).toBe("turn ran");
+    expect(() => w.budget.reserve("bounty:9", 1_000_000n)).not.toThrow();
   });
 
   it("takes turns: two sends at once never overlap", async () => {

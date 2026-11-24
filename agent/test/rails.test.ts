@@ -282,10 +282,10 @@ describe("spending budget", () => {
 describe("guarded x402 client", () => {
   const network = "ccd:4221332d34e1694168c2a0c0b3fd0f27" as const;
   const fakeScheme = { scheme: "exact", createPaymentPayload: async (v: number) => ({ x402Version: v, payload: { signed: true } }) };
-  const required = (r: { asset?: string; amount?: string; payTo?: string }) => ({
+  const required = (r: { asset?: string; amount?: string; payTo?: string; maxTimeoutSeconds?: number }) => ({
     x402Version: 2,
     resource: { url: "https://board/bounties/1/work", description: "work", mimeType: "application/json" },
-    accepts: [{ scheme: "exact", network, asset: r.asset ?? "EUDemo", amount: r.amount ?? "2000000", payTo: r.payTo ?? addr(7), maxTimeoutSeconds: 300, extra: {} }],
+    accepts: [{ scheme: "exact", network, asset: r.asset ?? "EUDemo", amount: r.amount ?? "2000000", payTo: r.payTo ?? addr(7), maxTimeoutSeconds: r.maxTimeoutSeconds ?? 300, extra: {} }],
   });
   const noBooking = () => () => {};
   const client = (expected: { payTo: string; amount: string }, o: { scheme?: unknown; book?: (amount: bigint) => () => void } = {}) =>
@@ -348,6 +348,14 @@ describe("guarded x402 client", () => {
     });
     await expect(refusing.createPaymentPayload(required({}) as never)).rejects.toThrow(/cannot read the payment back/);
     expect(() => budget.reserve("bounty:1", 2_000_000n)).not.toThrow();
+  });
+
+  it("refuses payment terms that would keep a signed payment open for more than ten minutes", async () => {
+    const booked: bigint[] = [];
+    const book = (a: bigint) => (booked.push(a), noBooking());
+    await expect(client({ payTo: addr(7), amount: "2000000" }, { book }).createPaymentPayload(required({ maxTimeoutSeconds: 86_400 }) as never)).rejects.toThrow();
+    expect(booked).toEqual([]);
+    await expect(client({ payTo: addr(7), amount: "2000000" }, { book }).createPaymentPayload(required({ maxTimeoutSeconds: 600 }) as never)).resolves.toBeDefined();
   });
 
   it("refuses a payment above the per-payment cap even when it was expected", async () => {

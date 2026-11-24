@@ -56,6 +56,11 @@ describe("chain lookups", () => {
     await expect(chain.txOutcome("aa".repeat(32))).rejects.toThrow(/node down/);
   });
 
+  it("reads the chain's last finalized time, and refuses to guess when the node gives none", async () => {
+    expect(await chainWith({ getConsensusStatus: async () => ({ lastFinalizedTime: new Date(1_800_000_000_000) }) }).lastFinalizedTime()).toBe(1_800_000_000_000);
+    await expect(chainWith({ getConsensusStatus: async () => ({}) }).lastFinalizedTime()).rejects.toThrow(/finalized time/);
+  });
+
   it("reads the account's finalized next nonce", async () => {
     const chain = chainWith({ getAccountInfo: async () => ({ accountNonce: SequenceNumber.create(7) }) });
     expect(await chain.finalizedNonce("4S3UrfhQbefa5SmR9qFsfTdVqYpSN9s4DVcmyVjTbNkoDtMxGs")).toBe(7n);
