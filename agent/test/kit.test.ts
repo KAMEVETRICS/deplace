@@ -266,6 +266,18 @@ describe("the agent kit: posting and paying", () => {
     expect(w.state.paid).toEqual(["http://board.test/bounties/9/work"]);
   });
 
+  it("pays on delivery only for a bounty this agent posted, whatever the board asks", async () => {
+    const { w, c } = await setup({
+      replace: { fetch_work: () => ({ paymentRequired: true, url: "http://board.test/bounties/5/work", payTo: WORKER, amount: "1000000", token: "EUDemo" }) },
+    });
+    const stranger = w.state.bounties.get("5")!; // posted by @alice
+    stranger.funding = { type: "NotFunded" };
+    stranger.status = { type: "Accepted", worker: WORKER, at: 0n, workHash: sha("x") };
+    c.budget.commit("bounty:5", 1_000_000n); // as if a commitment had ended up on it
+    expect(await c.call("get_work", { bounty_id: "5" })).toMatchObject({ isError: true, body: { refusedBy: "kit" } });
+    expect(w.state.paid).toEqual([]);
+  });
+
   it("rejects with the reason's hash, and says the third rejection is final", async () => {
     const { w, c } = await setup();
     await c.call("post_bounty", { ...PAGE_FACTS, reward: "1", deadline_hours: 2 });

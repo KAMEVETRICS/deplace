@@ -147,6 +147,8 @@ export function hireTools(d: KitDeps): HireTools {
           }
           // Who is owed what comes from the contract; the board's own payTo and amount are not used.
           const onChain = await d.chain.bounty(BigInt(id));
+          if (onChain.poster !== d.keys.address) throw new RailViolation(`refusing to pay for bounty ${id}: it was posted by ${onChain.poster}, not this agent`);
+          if (onChain.funding.type !== "NotFunded") throw new RailViolation(`refusing to pay for bounty ${id} on delivery: its reward is already escrowed`);
           const payee = await d.chain.payee(onChain);
           if (!payee) throw new RailViolation(`bounty ${id} is ${onChain.status.type} on chain, so nobody is owed its reward yet`);
           if (!work.url) throw new KitError(`the board asked for payment for bounty ${id} without saying where to pay`, false);

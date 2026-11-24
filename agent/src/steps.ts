@@ -114,13 +114,15 @@ export async function postStep(c: PostContext, spec: SpecFields): Promise<{ id: 
   if (idText === undefined) throw new Error("post went through but no Posted event came back");
   const id = BigInt(idText);
   if (ref === null) throw new Error("the post was relayed without being signed by this agent");
-  c.budget.rename(ref, `bounty:${id}`);
+  // The id comes from the board's answer, so the chain must confirm it before the commitment moves
+  // there: otherwise a board could put this reward's commitment on someone else's bounty.
   const onChain = await c.chain.bounty(id);
   if (onChain.poster !== c.keys.address || onChain.reward !== units || onChain.specHash !== specHash) {
     throw new RailViolation(
       `bounty ${id} on chain is not what the agent posted (poster ${onChain.poster}, reward ${onChain.reward} instead of ${units}, spec hash ${onChain.specHash}); stopping, cancel it if it is yours`,
     );
   }
+  c.budget.rename(ref, `bounty:${id}`);
   return { id, units, relayed };
 }
 

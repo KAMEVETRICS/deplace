@@ -91,6 +91,10 @@ interface Scenario {
   postSpecHash?: string;
   /** Where the board says to pay for escrow. */
   fundUrl?: string;
+  /** The bounty id the board reports for the post. */
+  postedId?: string;
+  /** A bounty id the chain says someone else posted. */
+  strangerAt?: string;
 }
 
 function world(s: Scenario = {}) {
@@ -106,7 +110,7 @@ function world(s: Scenario = {}) {
     async bounty(id) {
       const b: Bounty = {
         id,
-        poster: me.address,
+        poster: String(id) === s.strangerAt ? ATTACKER : me.address,
         posterAgent: 1418n,
         kind: "Exclusive",
         specHash: postedSpecHash,
@@ -161,7 +165,7 @@ function world(s: Scenario = {}) {
         }
         case "submit_signed":
           if (seenAtPost.spent === undefined) seenAtPost.spent = budget.spentLast24h();
-          return { txHash: "aa".repeat(32), link: "https://ccdexplorer.io/testnet/transaction/aa", events: [{ type: "Posted", id: "9" }] };
+          return { txHash: "aa".repeat(32), link: "https://ccdexplorer.io/testnet/transaction/aa", events: [{ type: "Posted", id: s.postedId ?? "9" }] };
         case "prepare_fund":
           return { x402: { method: "POST", url: s.fundUrl ?? "http://board.test/bounties/9/fund" }, fallback: { prepared: { txJson: "{}" } } };
         case "get_status": {
@@ -303,6 +307,13 @@ describe("poster agent rails", () => {
     await expect(postAndPay(w.opts({ escrow: true }))).rejects.toBeInstanceOf(RailViolation);
     expect(w.signatures).toEqual([]);
     expect(() => w.budget.reserve("bounty:9", REWARD)).not.toThrow(); // nothing was booked
+  });
+
+  it("never moves its commitment onto a bounty the chain says someone else posted", async () => {
+    const w = world({ postedId: "3", strangerAt: "3" });
+    await expect(postAndPay(w.opts())).rejects.toBeInstanceOf(RailViolation);
+    expect(() => w.budget.reserve("bounty:3", 1n)).toThrow(/commit/);
+    expect(w.budget.spentLast24h()).toBe(REWARD); // still counted, under the post's own commitment
   });
 
   it("keeps each payment's nonce on record until the board answers", async () => {
