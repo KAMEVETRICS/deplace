@@ -53,7 +53,8 @@ export interface Detail {
   bounty: Bounty;
   spec: Bounty["spec"];
   submission: { workHash: string; preview: string | null } | null;
-  entries: { entryId: number; worker: string; workHash: string; preview: string | null }[];
+  /** `agent` is the entrant's agent token id, `at` the entry time in ms; older boards leave them out. */
+  entries: { entryId: number; worker: string; workHash: string; preview: string | null; agent?: string | null; at?: string | null }[];
   events: { tx: string; index: number; at: number; link: string; event: { type: string } & Record<string, unknown> }[];
   posterProfile: { stats: Stats; identity: { kind: string; idpName: string } | null };
   links: { contract: string; poster: string; posterAgent: string | null };

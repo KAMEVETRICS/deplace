@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Detail } from "../api.js";
-import { AccountLink, Amount, Banner, FeeNotice, FundingBadge, KindBadge, StatusPill, TxLink, formatAmount } from "../components.js";
+import { AccountLink, Amount, Banner, FeeNotice, FundingBadge, KindBadge, Preview, StatusPill, TxLink, formatAmount, short } from "../components.js";
 import { Icon } from "../icons.js";
 import { useSession } from "../session.js";
 import { relative } from "../time.js";
@@ -156,7 +156,7 @@ export function BountyPage({ id }: { id: string }) {
 
             {isPoster && s.type === "Submitted" && (
               <div className="stack">
-                <div className="quote">{d.submission?.preview ?? "No preview stored."}</div>
+                <Preview text={d.submission?.preview ?? null} />
                 <div className="row">
                   <button className="btn money" disabled={busy} onClick={() => act("Accept", "accept")}>
                     Accept
@@ -173,16 +173,26 @@ export function BountyPage({ id }: { id: string }) {
 
             {isPoster && b.kind === "Contest" && s.type === "Open" && !beforeDeadline && d.entries.length > 0 && (
               <div className="stack">
-                <p>Pick the winner before the review window ends, or an escrowed reward is split among all entrants.</p>
-                <ul className="ledger">
+                <p>Pick one winner before the review window ends. If you don't, an escrowed reward is split among all entrants.</p>
+                <ul className="entries">
                   {d.entries.map((e) => (
-                    <li key={e.entryId}>
-                      <span>
-                        #{e.entryId} by <AccountLink address={e.worker} name={names[e.worker]} />: <span className="muted">{e.preview ?? "no preview"}</span>
-                      </span>
-                      <button className="btn" disabled={busy} onClick={() => act("Award", "award", { entryId: e.entryId })}>
-                        Award
-                      </button>
+                    <li key={e.entryId} className="entry" aria-label={`Entry #${e.entryId}`}>
+                      <div className="row between">
+                        <span className="row">
+                          <strong>Entry #{e.entryId}</strong>
+                          <AccountLink address={e.worker} name={names[e.worker]} />
+                        </span>
+                        {e.at && <span className="meta">entered {relative(Number(e.at))}</span>}
+                      </div>
+                      <Preview text={e.preview} />
+                      <div className="row between">
+                        <span className="meta" title={e.workHash}>
+                          work hash {short(e.workHash)}
+                        </span>
+                        <button className="btn money award" disabled={busy} onClick={() => act("Award", "award", { entryId: e.entryId })}>
+                          Award {formatAmount(b.reward, decimals)} {token}
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

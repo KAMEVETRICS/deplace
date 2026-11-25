@@ -267,6 +267,16 @@ pre.well { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; color: var(--text); }
 .kv dd.danger { color: var(--danger); font-weight: 600; }
+/* Contest entries and work previews: one bordered block per entry, the preview kept to four lines until asked. */
+.entries { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.entry { display: grid; gap: 10px; min-width: 0; padding: 12px 14px; background: var(--input); border: 1px solid var(--line); border-radius: var(--radius); }
+.preview { margin: 0; color: var(--text); white-space: pre-wrap; }
+.preview.clamp { -webkit-line-clamp: 4; line-clamp: 4; }
+.entry .award { margin-left: auto; }
+.text-btn { justify-self: start; min-height: 32px; padding: 0; border: 0; background: none; color: var(--label); font: inherit; font-size: 0.875rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.top .signout { display: none; }
+@media (min-width: 960px) { .top .signout { display: inline-flex; } }
+
 .ledger { list-style: none; margin: 0; padding: 0; display: grid; }
 .ledger li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.9375rem; }
 .ledger li:last-child { border-bottom: 0; }

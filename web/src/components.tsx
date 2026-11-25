@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon } from "./icons.js";
 import type { Funding, Prepared, Status } from "./types.js";
 
@@ -28,6 +28,26 @@ export function formatAmount(units: string, decimals: number): string {
 }
 
 export const short = (s: string, n = 6) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
+
+/** A preview longer than this, or with more lines, starts clamped to four lines. */
+const LONG_PREVIEW = { chars: 280, lines: 4 };
+
+/** A worker's preview of their work: kept to four lines when it's long, with a toggle to read all of it. */
+export function Preview({ text }: { text: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return <p className="meta">No preview stored.</p>;
+  const long = text.length > LONG_PREVIEW.chars || text.split("\n").length > LONG_PREVIEW.lines;
+  return (
+    <div className="stack tight">
+      <p className={long && !open ? "quote preview clamp" : "quote preview"}>{text}</p>
+      {long && (
+        <button type="button" className="text-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show the whole preview"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** An amount of the reward token, in the wallet's balance gradient. */
 export function Amount({ units, decimals, token, big }: { units: string; decimals: number; token: string; big?: boolean }) {
