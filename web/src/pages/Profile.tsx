@@ -6,7 +6,7 @@ import type { Bounty, Stats } from "../types.js";
 import { BountyCard } from "./Board.js";
 
 export function Profile({ account }: { account: string }) {
-  const { config, names, learnNames } = useSession();
+  const { config, names, learnNames, account: me, signOut } = useSession();
   const [p, setP] = useState<{ stats: Stats; identity: { kind: string; idpName: string } | null; link: string } | null>(null);
   const [posted, setPosted] = useState<Bounty[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,14 @@ export function Profile({ account }: { account: string }) {
   return (
     <section className="stack page">
       <div className="stack tight">
-        <span className="kicker">Public record</span>
+        <div className="row between">
+          <span className="kicker">Public record</span>
+          {me === account && (
+            <button className="btn ghost" onClick={signOut}>
+              Sign out
+            </button>
+          )}
+        </div>
         <h1>{names[account] ?? (p.identity ? `Verified ${p.identity.kind}` : "Identity not found")}</h1>
         <p className="meta break">
           {names[account] && (p.identity ? `Verified ${p.identity.kind} · ` : "Identity not found · ")}

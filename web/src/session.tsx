@@ -131,6 +131,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToast(null);
   }, []);
 
+  // The board session belongs to the account that signed in. When the wallet switches to another
+  // account or disconnects this site, sign out instead of carrying on as an account it left.
+  useEffect(() => {
+    if (!provider || !account) return;
+    const changed = (next: string) => {
+      if (next === account) return;
+      signOut();
+      setToast({ kind: "info", text: "Your wallet switched accounts, so you're signed out. Connect again to continue with the account it shows now." });
+    };
+    const disconnected = () => {
+      signOut();
+      setToast({ kind: "info", text: "Your wallet disconnected this site, so you're signed out." });
+    };
+    provider.on("accountChanged", changed);
+    provider.on("accountDisconnected", disconnected);
+    return () => {
+      provider.removeListener("accountChanged", changed);
+      provider.removeListener("accountDisconnected", disconnected);
+    };
+  }, [provider, account, signOut]);
+
   const setUsername = useCallback(
     async (name: string) => {
       const r = await api.setUsername(name);

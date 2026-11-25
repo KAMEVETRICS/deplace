@@ -7,7 +7,7 @@ afterEach(cleanup);
 
 const ACCOUNT = "4jKZns1aveRVjBmGrvTp9ovsptBMktCJgoZ3zC5XTRsVrqjyuF";
 const shell = (over: Partial<Parameters<typeof Shell>[0]> = {}) => (
-  <Shell route="board" account={null} label={null} token="EUDemo" busy={false} onConnect={() => {}} {...over}>
+  <Shell route="board" account={null} label={null} token="EUDemo" busy={false} onConnect={() => {}} onSignOut={() => {}} {...over}>
     <p>page</p>
   </Shell>
 );
@@ -31,6 +31,15 @@ describe("Shell", () => {
     const current = screen.getAllByRole("link", { current: "page" });
     expect(current.length).toBeGreaterThan(0);
     for (const a of current) expect(a.getAttribute("href")).toBe("#/post");
+  });
+
+  it("offers Sign out to whoever is signed in, and only then", () => {
+    const onSignOut = vi.fn();
+    const { rerender } = render(shell({ onSignOut }));
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    rerender(shell({ account: ACCOUNT, label: "@alice", onSignOut }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(onSignOut).toHaveBeenCalledOnce();
   });
 
   it("offers Connect wallet when signed out, and shows who is signed in otherwise", () => {

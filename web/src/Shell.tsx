@@ -36,6 +36,7 @@ export function Shell({
   token,
   busy,
   onConnect,
+  onSignOut,
   children,
 }: {
   route: Route;
@@ -45,6 +46,8 @@ export function Shell({
   token: string;
   busy: boolean;
   onConnect(): void;
+  /** Forgets the wallet and the board session; on phones, My record offers it instead. */
+  onSignOut(): void;
   children: ReactNode;
 }) {
   const link = (i: Item) => (
@@ -81,15 +84,20 @@ export function Shell({
           <p>{account ? `Rewards are paid in ${token}.` : "Connect Concordium Wallet for Web to post, claim or get paid."}</p>
         </div>
         {account ? (
-          <a className="userchip" href="#/me" title={account}>
-            <span className="avatar" aria-hidden>
-              {(label ?? "?").slice(0, 1).toUpperCase()}
-            </span>
-            <span>
-              <strong>{label ?? "Signed in"}</strong>
-              <small>{short(account)}</small>
-            </span>
-          </a>
+          <div className="row">
+            <a className="userchip" href="#/me" title={account}>
+              <span className="avatar" aria-hidden>
+                {(label ?? "?").slice(0, 1).toUpperCase()}
+              </span>
+              <span>
+                <strong>{label ?? "Signed in"}</strong>
+                <small>{short(account)}</small>
+              </span>
+            </a>
+            <button className="btn ghost signout" onClick={onSignOut}>
+              Sign out
+            </button>
+          </div>
         ) : (
           <button className="btn money" disabled={busy} onClick={onConnect}>
             <Icon name="wallet" />

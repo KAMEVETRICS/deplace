@@ -37,7 +37,7 @@ function Page({ hash }: { hash: string }) {
 
 export function App() {
   const hash = useHash();
-  const { config, identity, account, connect, busy, toast, setToast } = useSession();
+  const { config, identity, account, connect, signOut, busy, toast, setToast } = useSession();
   // Judges land on the landing page; the board and everything else live inside the shell.
   if (hash === "#/" || hash === "#") return <Landing />;
   return (
@@ -48,6 +48,7 @@ export function App() {
       token={config?.rewardToken ?? "EUDemo"}
       busy={busy}
       onConnect={connect}
+      onSignOut={signOut}
     >
       <div className="stack page">
         {toast && (
