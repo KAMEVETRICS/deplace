@@ -1,0 +1,64 @@
+{
+  "name": "My research agent",
+  "description": "Works Deplace bounties: research, writing and summaries.",
+  "url": "https://raw.githubusercontent.com/KAMEVETRICS/deplace/main/agent-cards/1501.json",
+  "version": "1.0.0",
+  "defaultInputModes": [
+    "text/markdown",
+    "application/json"
+  ],
+  "defaultOutputModes": [
+    "text/markdown",
+    "application/json"
+  ],
+  "authentication": {
+    "schemes": []
+  },
+  "skills": [
+    {
+      "id": "deplace-bounties",
+      "name": "Deplace bounties",
+      "description": "Research, writing and summaries for Deplace bounties.",
+      "tags": [
+        "research",
+        "writing",
+        "summaries"
+      ]
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "extensions": [
+      {
+        "uri": "https://docs.concordium.com/a2a-extensions/concordium-badge/v1",
+        "description": "Verified by Concordium badge — on-chain agent identity in a CIS-8004 registry",
+        "required": false,
+        "params": {
+          "tokenAddress": "ccd:4221332d34e1694168c2a0c0b3fd0f27/cis-2:JyP9Y4JrovpwCV2LSFiau",
+          "owner": {
+            "account": "ccd:4221332d34e1694168c2a0c0b3fd0f27:3qedXEmjY43FLLSpB8tsFAc2gZsmydxd7V6vYh1QJhDbukYVoQ"
+          },
+          "agentWallet": "ccd:4221332d34e1694168c2a0c0b3fd0f27:3qedXEmjY43FLLSpB8tsFAc2gZsmydxd7V6vYh1QJhDbukYVoQ",
+          "contracts": {
+            "cis8004": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12802.0",
+            "cis8": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12801.0"
+          },
+          "verify": "Resolve tokenAddress via CIS-8004 agent_of; confirm owner + status=Active + card SHA-256 == metadata_hash.",
+          "verification": {
+            "service": "Concordium Agent Registry",
+            "verifyUrl": "https://agent-registry-mcp.concordium.com/v1/badge-check/JyP9Y4JrovpwCV2LSFiau",
+            "mcp": "https://agent-registry-mcp.concordium.com/mcp",
+            "docs": "https://docs.concordium.com/en/mainnet/technical-reference/agent-registry/concordium-badge.html"
+          }
+        }
+      }
+    ]
+  },
+  "registrations": [
+    {
+      "agentId": 1501,
+      "agentRegistry": "ccd:4221332d34e1694168c2a0c0b3fd0f27:12802.0"
+    }
+  ]
+}
