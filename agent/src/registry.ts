@@ -79,10 +79,13 @@ export type RegisterOutcome =
 
 interface ListedAgent {
   token_id: number | string;
-  agent_uri?: string;
+  /** Null or empty when the agent was registered without a card. */
+  agent_uri?: string | null;
   status?: string;
   metadata_hash?: string | null;
   metadata_hash_hex?: string | null;
+  /** The account the registry pays the agent at; Deplace expects the agent's logins signed by it. */
+  agent_wallet?: string | null;
 }
 
 const sha256 = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
@@ -94,12 +97,19 @@ export async function registerAgent(o: RegisterOptions): Promise<RegisterOutcome
   const sleep = o.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const { card } = o;
 
-  async function myAgent(): Promise<ListedAgent | null> {
+  /** This account's agents that aren't revoked. */
+  async function owned(): Promise<ListedAgent[]> {
     const r = await o.registry.call<{ agents?: ListedAgent[] } | ListedAgent[]>("agents_by_owner", { owner_account: o.owner });
-    const agents = Array.isArray(r) ? r : (r.agents ?? []);
-    const mine = agents.filter((a) => a.agent_uri === card.url && a.status !== "Revoked");
-    return mine.length ? mine[mine.length - 1]! : null;
+    return (Array.isArray(r) ? r : (r.agents ?? [])).filter((a) => a.status !== "Revoked");
   }
+  const withThisCard = (agents: ListedAgent[]): ListedAgent | null => {
+    const mine = agents.filter((a) => a.agent_uri === card.url);
+    return mine.length ? mine[mine.length - 1]! : null;
+  };
+  /** The newest agent this account registered without a card, for example with a tool that stopped before linking it. */
+  const withoutCard = (agents: ListedAgent[]): ListedAgent | null =>
+    agents.filter((a) => !a.agent_uri).reduce<ListedAgent | null>((newest, a) => (newest === null || BigInt(a.token_id) > BigInt(newest.token_id) ? a : newest), null);
+  const myAgent = async () => withThisCard(await owned());
   async function waitForIndexer(): Promise<ListedAgent | null> {
     for (let i = 0; i < INDEXER_POLLS; i++) {
       const agent = await myAgent();
@@ -109,12 +119,18 @@ export async function registerAgent(o: RegisterOptions): Promise<RegisterOutcome
     return null;
   }
 
-  // 1. Register (mints the agent NFT to this account; agentWallet = this account).
-  let agent = await myAgent();
+  // 1. Register (mints the agent NFT to this account; agentWallet = this account), unless this
+  //    account already has an agent with this card, or one registered without a card to finish.
+  const listed = await owned();
+  let agent = withThisCard(listed);
   if (!agent && existsSync(o.registeredFile)) {
     // Registered before, but the indexer does not list it yet. Registering again would mint a second agent.
     agent = await waitForIndexer();
     if (!agent) return { step: "indexer-behind", tx: readFileSync(o.registeredFile, "utf8").trim() };
+  }
+  if (!agent) {
+    agent = withoutCard(listed);
+    if (agent) o.log(`1. finishing agent #${agent.token_id}, which this account registered without a card, instead of registering another`);
   }
   if (!agent) {
     o.log(`1. registering ${o.owner} with agent_uri ${card.url}`);
@@ -129,6 +145,9 @@ export async function registerAgent(o: RegisterOptions): Promise<RegisterOutcome
   }
   const tokenId = String(agent.token_id);
   o.log(`1. agent token id ${tokenId}`);
+  if (agent.agent_wallet && agent.agent_wallet !== o.owner) {
+    o.log(`   note: agent #${tokenId}'s agentWallet is ${agent.agent_wallet}, not ${o.owner}. Deplace expects the agent's logins signed by ${agent.agent_wallet}, so give the kit that account's key.`);
+  }
 
   // 2. The card for this token id. The registry builds it deterministically, badge block included.
   const built = await o.registry.call<{ agent_card_json?: unknown }>("build_agent_card", {
@@ -156,11 +175,13 @@ export async function registerAgent(o: RegisterOptions): Promise<RegisterOutcome
     return { step: "card-not-served", url: card.url, served: sha256(served), expected: sha256(local) };
   }
 
-  // 4. Pin the card hash on chain.
+  // 4. Pin the card hash on chain, and link the card's URL when the agent was registered without one.
+  const hash = sha256(served);
   const onChain = agent.metadata_hash_hex ?? agent.metadata_hash ?? null;
-  if (onChain !== sha256(served)) {
-    o.log(`4. pinning metadata_hash ${sha256(served)}`);
-    await o.submit(await o.registry.call<BuiltTx>("build_set_agent_uri", { token_id: tokenId, metadata_hash_hex: sha256(served), sender: o.owner }));
+  const linked = agent.agent_uri === card.url;
+  if (onChain !== hash || !linked) {
+    o.log(linked ? `4. pinning metadata_hash ${hash}` : `4. linking ${card.url} and pinning metadata_hash ${hash}`);
+    await o.submit(await o.registry.call<BuiltTx>("build_set_agent_uri", { token_id: tokenId, ...(linked ? {} : { agent_uri: card.url }), metadata_hash_hex: hash, sender: o.owner }));
   }
 
   // 5. Check the badge.

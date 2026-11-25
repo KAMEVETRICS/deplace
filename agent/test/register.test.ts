@@ -130,6 +130,13 @@ describe("registering an agent", () => {
     expect(recorded).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/)]);
   });
 
+  it("leaves an agent with another card alone and registers a new one", async () => {
+    const elsewhere = { token_id: 3, agent_uri: "https://elsewhere.example/card.json", status: "Active" };
+    const r = setup({ agents: [[elsewhere], [elsewhere, mine()]] });
+    expect(await registerAgent(r.o)).toMatchObject({ step: "card-written", tokenId: "77" });
+    expect(r.submitted).toEqual(["cis8004.register"]);
+  });
+
   it("asks the registry for the reference agent's card with the same input as before", async () => {
     const r = setup({ agents: [[mine()]] });
     await registerAgent({ ...r.o, card: { ...REFERENCE_AGENT_CARD, url: URL_, file: r.file } });
@@ -141,5 +148,46 @@ describe("registering an agent", () => {
       token_id: "77",
       skills: [{ id: "page-facts", name: "Page facts", description: "Fetch a public URL and report its title, visible word count and SHA-256.", tags: ["bounty", "web"] }],
     });
+  });
+});
+
+describe("finishing an agent registered without a card", () => {
+  /** An agent minted by another tool that stopped before linking its card (no agent_uri on chain). */
+  const unfinished = (extra: Record<string, unknown> = {}) => ({ token_id: 1501, agent_uri: null, status: "Active", metadata_hash_hex: "3d".repeat(32), agent_wallet: OWNER, ...extra });
+
+  it("writes the card for that agent instead of registering another", async () => {
+    const r = setup({ agents: [[unfinished()]] });
+    expect(await registerAgent(r.o)).toEqual({ step: "card-written", file: r.file, url: URL_, tokenId: "1501" });
+    expect(r.submitted).toEqual([]);
+    expect(r.calls.find((c) => c.name === "build_agent_card")!.args).toMatchObject({ token_id: "1501", agent_uri: URL_, owner_account: OWNER });
+    expect(r.log.join("\n")).toMatch(/finishing agent #1501/);
+  });
+
+  it("links the card's URL on chain together with its hash once the card is served", async () => {
+    const r = setup({ agents: [[unfinished({ metadata_hash_hex: sha(CARD_JSON) })]], cardOnDisk: CARD_JSON, served: CARD_JSON });
+    expect(await registerAgent(r.o)).toEqual({ step: "badge", badge: "JyP9WVTtVnRuL8JUmLKZH", valid: true, issues: [], tokenId: "1501" });
+    expect(r.submitted).toEqual(["cis8004.setAgentURI"]);
+    expect(r.calls.find((c) => c.name === "build_set_agent_uri")!.args).toEqual({ token_id: "1501", agent_uri: URL_, metadata_hash_hex: sha(CARD_JSON), sender: OWNER });
+  });
+
+  it("finishes the newest one when several have no card, and never a revoked one", async () => {
+    const r = setup({
+      agents: [[unfinished({ token_id: 5 }), unfinished({ token_id: 12, status: "Revoked" }), unfinished({ token_id: 9, agent_uri: "" }), unfinished({ token_id: 7 })]],
+    });
+    expect(await registerAgent(r.o)).toMatchObject({ step: "card-written", tokenId: "9" });
+    expect(r.submitted).toEqual([]);
+  });
+
+  it("doesn't take one over while its own registration is still being indexed", async () => {
+    const r = setup({ agents: [[unfinished()]], registeredBefore: "cd".repeat(32) });
+    expect(await registerAgent(r.o)).toEqual({ step: "indexer-behind", tx: "cd".repeat(32) });
+    expect(r.submitted).toEqual([]);
+  });
+
+  it("warns when the agent pays out to another account than this one", async () => {
+    const other = "3qedXEmjY43FLLSpB8tsFAc2gZsmydxd7V6vYh1QJhDbukYVoQ";
+    const r = setup({ agents: [[unfinished({ agent_wallet: other })]] });
+    await registerAgent(r.o);
+    expect(r.log.join("\n")).toMatch(new RegExp(`agentWallet is ${other}`));
   });
 });
