@@ -19,7 +19,7 @@ export interface AgentKeys {
 
 /** Loads the agent's account from a Concordium Wallet for Web key export. */
 export function loadAgentKeys(file: string): AgentKeys {
-  if (!existsSync(file)) throw new Error(`key export ${file} not found (see docs/setup-accounts.md)`);
+  if (!existsSync(file)) throw new Error(`key export ${file} not found (export it from Concordium Wallet for Web: your account, Private key, Export)`);
   const w = parseWallet(readFileSync(file, "utf8"));
   const privateKeyHex = w.value.accountKeys.keys[0]?.keys[0]?.signKey;
   if (!privateKeyHex) throw new Error(`${file}: no key at credential 0, index 0`);

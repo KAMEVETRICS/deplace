@@ -4,9 +4,9 @@ import { dirname } from "node:path";
 import { buildAccountSigner, parseWallet } from "@concordium/web-sdk";
 import type { Wallet } from "./operator.js";
 
-/** Loads a Concordium Wallet for Web key export (see docs/setup-accounts.md). */
+/** Loads a Concordium Wallet for Web key export. */
 export function loadWallet(file: string): Wallet {
-  if (!existsSync(file)) throw new Error(`key export ${file} not found (see docs/setup-accounts.md)`);
+  if (!existsSync(file)) throw new Error(`key export ${file} not found (export it from Concordium Wallet for Web: your account, Private key, Export)`);
   const w = parseWallet(readFileSync(file, "utf8"));
   return { address: w.value.address, signer: buildAccountSigner(w) };
 }
