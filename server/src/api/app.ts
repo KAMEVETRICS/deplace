@@ -115,6 +115,10 @@ export function createApp({ service, extraRouters = [], mounts = [], health }: A
       res.status(400).json({ error: "request body is not valid JSON" });
       return;
     }
+    if ((err as { type?: string })?.type === "entity.too.large") {
+      res.status(413).json({ error: "request body is too large (at most 256 KB)" });
+      return;
+    }
     console.error("[api] unexpected error", err);
     res.status(500).json({ error: "internal error" });
   });

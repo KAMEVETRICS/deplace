@@ -420,3 +420,103 @@ describe("usernames", () => {
     expect((await call("GET", `/profiles/${worker.address}`)).body.names).toEqual({});
   });
 });
+
+describe("attacks", () => {
+  const SQLI = ["Open' OR '1'='1", "x' OR 1=1 --", "Open; DROP TABLE bounties; --", "' UNION SELECT json FROM specs --"];
+
+  it("treats SQL in list filters as plain values: nothing leaks and the table survives", async () => {
+    chainBounties.set(0n, bounty(0n));
+    chainBounties.set(1n, bounty(1n));
+    expect((await call("GET", "/bounties")).body.bounties).toHaveLength(2);
+    for (const p of SQLI) {
+      const q = encodeURIComponent(p);
+      for (const path of [`/bounties?status=${q}`, `/bounties?poster=${q}`]) {
+        const r = await call("GET", path);
+        expect(r.status, path).toBe(200);
+        expect(r.body.bounties, path).toEqual([]);
+      }
+    }
+    expect((await call("GET", "/bounties")).body.bounties).toHaveLength(2);
+  });
+
+  it("stores scripts and SQL in posted text as inert data, byte for byte", async () => {
+    const { token } = await loginAccount();
+    const evil = { ...spec, title: "<img src=x onerror=alert(1)>", description: "'); DROP TABLE specs; -- <script>alert(document.cookie)</script>" };
+    const r = await call("POST", "/bounties", evil, token);
+    expect(r.status).toBe(200);
+    const stored = await call("GET", `/specs/${r.body.specHash}`);
+    expect(stored.body.title).toBe(evil.title);
+    expect(stored.body.description).toBe(evil.description);
+  });
+
+  it("refuses oversized and malformed bounty fields with a 400, never a 500", async () => {
+    const { token } = await loginAccount();
+    const bads: unknown[] = [
+      { ...spec, title: "x".repeat(121) },
+      { ...spec, description: "x".repeat(4001) },
+      { ...spec, taskKind: "writing; DROP TABLE bounties" },
+      { ...spec, taskKind: "<script>" },
+      { ...spec, input: { blob: "x".repeat(3000) } },
+      { ...spec, input: ["not", "an", "object"] },
+      { ...spec, input: null },
+      { ...spec, deadline: "tomorrow" },
+      { ...spec, deadline: NOW + 91 * 86_400_000 },
+      { ...spec, reward: "-5" },
+      { ...spec, reward: "1e9" },
+      { ...spec, reward: { $gt: 0 } },
+      { ...spec, title: 12345 },
+      "just a string",
+    ];
+    for (const bad of bads) {
+      const r = await call("POST", "/bounties", bad, token);
+      expect(r.status, JSON.stringify(bad).slice(0, 80)).toBe(400);
+    }
+  });
+
+  it("refuses a body over 256 KB and broken JSON without crashing", async () => {
+    const { token } = await loginAccount();
+    const big = await fetch(base + "/bounties", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ ...spec, description: "x".repeat(300_000) }) });
+    expect(big.status).toBe(413);
+    const broken = await fetch(base + "/bounties", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: '{"title": "x", ' });
+    expect(broken.status).toBe(400);
+    expect((await call("GET", "/config")).status).toBe(200);
+  });
+
+  it("refuses oversized work and odd bounty ids", async () => {
+    chainBounties.set(0n, bounty(0n, { status: { type: "Claimed", worker: worker.address, agent: null } }));
+    const { token } = await loginAccount(worker);
+    expect((await call("POST", "/bounties/0/submit", { preview: "x".repeat(2001), full: "ok" }, token)).status).toBe(400);
+    expect((await call("POST", "/bounties/0/submit", { preview: "ok", full: "x".repeat(100_001) }, token)).status).toBe(400);
+    expect((await call("POST", "/bounties/0/submit", { preview: "ok", full: "" }, token)).status).toBe(400);
+    expect((await call("POST", "/bounties/0/submit", { preview: { $ne: 1 }, full: ["a"] }, token)).status).toBe(400);
+    for (const id of ["1%20OR%201%3D1", "-1", "0x10", "99999999999999999999999", "..%2F..%2Fconfig"]) {
+      const r = await call("GET", `/bounties/${id}`);
+      expect([400, 404], id).toContain(r.status);
+    }
+  });
+
+  it("can't be talked into prototype pollution by a bounty's input", async () => {
+    const { token } = await loginAccount();
+    const raw = JSON.stringify({ ...spec, input: { a: 1 } }).replace('"input":{"a":1}', '"input":{"__proto__":{"polluted":true},"constructor":{"prototype":{"polluted2":true}}}');
+    await fetch(base + "/bounties", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: raw });
+    expect(({} as any).polluted).toBeUndefined();
+    expect(({} as any).polluted2).toBeUndefined();
+  });
+
+  it("refuses forged and malformed sessions", async () => {
+    chainBounties.set(0n, bounty(0n));
+    for (const t of ["made-up", "' OR '1'='1", "a".repeat(5000), "../../etc/passwd"]) {
+      expect((await call("POST", "/bounties/0/claim", {}, t)).status).toBe(401);
+    }
+    const ch = await call("POST", "/auth/challenge", { account: poster.address });
+    const forged = await call("POST", "/auth/login", { account: poster.address, nonce: ch.body.nonce, signature: { 0: { 0: "00".repeat(64) } } });
+    expect(forged.status).toBe(401);
+  });
+
+  it("keeps a rejection reason with markup as data, cut to 2,000 characters", async () => {
+    chainBounties.set(0n, bounty(0n, { status: { type: "Submitted", worker: worker.address, agent: null, workHash: "cd".repeat(32), at: BigInt(NOW) } }));
+    const { token } = await loginAccount();
+    const r = await call("POST", "/bounties/0/reject", { reason: "<script>alert(1)</script>" + "y".repeat(5000) }, token);
+    expect(r.status).toBe(200);
+  });
+});

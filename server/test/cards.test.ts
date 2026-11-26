@@ -40,3 +40,12 @@ describe("agent cards", () => {
     expect((await fetch(`${base}/agents/bounty-worker.txt`)).status).toBe(404);
   });
 });
+
+describe("agent cards under attack", () => {
+  it("refuses every path-traversal spelling", async () => {
+    for (const p of ["..%2F..%2Fpackage.json", "%2e%2e%2f%2e%2e%2fpackage.json", "..%5C..%5Cpackage.json", "bounty-worker.json%00.txt", "%252e%252e%252fpackage.json", "....%2F%2Fpackage.json", "BOUNTY-WORKER.json", ".hidden.json"]) {
+      const res = await fetch(`${base}/agents/${p}`);
+      expect(res.status, p).toBe(404);
+    }
+  });
+});
