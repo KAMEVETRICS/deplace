@@ -120,3 +120,24 @@ describe("a contest's entries, for the poster after the deadline", () => {
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
   });
 });
+
+describe("attacks on the bounty page", () => {
+  const PAYLOADS = ['<img src=x onerror="window.__xss=1">', '<script>window.__xss=1</script>', '"><svg onload="window.__xss=1">', "javascript:window.__xss=1"];
+
+  it("renders hostile titles, descriptions, inputs and previews as text, never as markup", async () => {
+    const d = detail();
+    bountyMock.mockResolvedValue({
+      ...d,
+      spec: { ...d.spec, title: PAYLOADS[0], description: PAYLOADS[1], taskKind: "x", input: { url: PAYLOADS[3], html: PAYLOADS[2] } },
+      entries: [{ entryId: 0, worker: AGENT, workHash: HASH, preview: PAYLOADS.join(" ") }],
+    });
+    const { container } = render(<BountyPage id="6" />);
+    await screen.findByRole("listitem", { name: "Entry #0" });
+    expect(container.querySelector("script, img, iframe, [onerror], [onload]")).toBeNull();
+    expect(container.innerHTML).not.toMatch(/<img|<script/);
+    expect(container.innerHTML).toContain("&lt;img src=x onerror=");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(PAYLOADS[0]);
+    for (const a of container.querySelectorAll("a")) expect(a.getAttribute("href") ?? "").not.toMatch(/^javascript:/i);
+    expect((window as unknown as { __xss?: number }).__xss).toBeUndefined();
+  });
+});
