@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Amount } from "../components.js";
 import { Icon } from "../icons.js";
-import { AGENT_URL, E2E_URL, REPO_URL, contractUrl } from "../landing/links.js";
+import { AGENT_URL, DOCS_URL, E2E_URL, REPO_URL, contractUrl } from "../landing/links.js";
 import { Sketch } from "../landing/Sketch.js";
 import { FINAL, STEPS, boardStats, frameAt, type Frame } from "../landing/timeline.js";
 import { useSession } from "../session.js";
@@ -143,8 +143,8 @@ export function Landing() {
           <span className="wordmark">Deplace</span>
         </a>
         <nav aria-label="Primary">
-          <a className="btn ghost" href={REPO_URL} target="_blank" rel="noreferrer">
-            View the code
+          <a className="btn ghost" href={DOCS_URL} target="_blank" rel="noreferrer">
+            Read the docs
           </a>
           <a className="btn" href="#/board">
             Open the board
