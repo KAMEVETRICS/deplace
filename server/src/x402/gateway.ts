@@ -17,9 +17,11 @@ export interface GatewayOptions {
 }
 
 /**
- * x402 `exact` payments in the reward PLT through the board's own facilitator. Concordium
- * runs no hosted facilitator, so the board embeds one: it checks the payer's partly signed
- * transfer, adds the sponsor's signature, submits it and waits for finalization.
+ * x402 `exact` payments in the reward PLT through the board's own facilitator. Concordium also
+ * offers a hosted testnet facilitator behind an API key; the board embeds its own instead, so it
+ * needs no key and can refuse a payment from anyone but the expected payer before settling. It
+ * checks the payer's partly signed transfer, adds the sponsor's signature, submits it and waits
+ * for finalization.
  */
 export async function createX402Gateway(o: GatewayOptions): Promise<X402Gateway> {
   const network = CONCORDIUM_TESTNET_CAIP2 as `${string}:${string}`;
