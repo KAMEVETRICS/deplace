@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bounty, BountyStatus, Funding } from "@deplace/shared";
 import { createApp } from "../src/api/app.js";
 import { BoardService } from "../src/board/service.js";
@@ -56,12 +56,15 @@ const gateway: X402Gateway = {
   },
   settle: async (_header, _req, expectedPayer) => {
     settleCalls.push({ expectedPayer });
+    await settleGate;
     return settleResult;
   },
 };
 let settleCalls: { expectedPayer?: string }[];
 let depositIds: (bigint | undefined)[];
 let recordFails: number;
+/** Settlement waits for this, so a test can hold one payment in flight. */
+let settleGate: Promise<void>;
 
 beforeEach(async () => {
   chain = new Map();
@@ -72,9 +75,10 @@ beforeEach(async () => {
   settleCalls = [];
   depositIds = [];
   recordFails = 0;
+  settleGate = Promise.resolve();
   settleResult = { ok: true, tx: "ee".repeat(32), responseHeader: "settled", payer: poster.address };
   service = new BoardService({
-    config: { contract: { index: 1n, subindex: 0n }, rewardTokenId: "EUDemo", tokenDecimals: 6, escrowAccount: ESCROW, sponsorAddress: "s", faucetUrl: null, badgeApi: "x" },
+    config: { contract: { index: 1n, subindex: 0n }, rewardTokenId: "EUDemo", tokenDecimals: 6, escrowAccount: ESCROW, sponsorAddress: "s", faucetUrl: null, badgeApi: "x", site: "board.test" },
     store,
     chain: { view: async (id) => chain.get(id) ?? null, entry: async () => null, stats: async () => ({}) as never, all: async () => [...chain.values()] },
     isOnAllowList: async () => true,
@@ -185,6 +189,22 @@ describe("pay on delivery", () => {
     expect(payouts).toEqual([[0n, [{ to: worker.address, amount: 3_000_000n, tx: "ee".repeat(32) }]]]);
   });
 
+  it("settles one payment at a time per bounty, so two paid requests together cannot pay twice", async () => {
+    chain.set(0n, bounty(0n, accepted));
+    const token = await tokenFor(poster);
+    let release = () => {};
+    settleGate = new Promise((r) => (release = r));
+    const first = get("/bounties/0/work", token, "signed-payment");
+    await vi.waitFor(() => expect(settleCalls).toHaveLength(1));
+    const second = await get("/bounties/0/work", token, "another-signed-payment");
+    expect(second.status).toBe(409);
+    expect(second.body).toMatchObject({ retryable: true, error: expect.stringMatching(/already being settled/) });
+    release();
+    expect((await first).status).toBe(200);
+    expect(settleCalls).toHaveLength(1);
+    expect(payouts).toHaveLength(1);
+  });
+
   it("settlement_failure_does_not_record_payout", async () => {
     chain.set(0n, bounty(0n, accepted));
     settleResult = { ok: false, error: "insufficient balance" };
@@ -231,6 +251,19 @@ describe("escrow funding over x402", () => {
     expect(depositIds).toEqual([0n]);
     expect(settleCalls).toEqual([{ expectedPayer: poster.address }]);
     expect(r.body.funded).toEqual({ confirmed: true });
+  });
+
+  it("settles one funding payment at a time per bounty", async () => {
+    chain.set(0n, bounty(0n, { type: "Open" }));
+    const token = await tokenFor(poster);
+    let release = () => {};
+    settleGate = new Promise((r) => (release = r));
+    const first = post("/bounties/0/fund", token, "signed-payment");
+    await vi.waitFor(() => expect(settleCalls).toHaveLength(1));
+    expect((await post("/bounties/0/fund", token, "another-signed-payment")).status).toBe(409);
+    release();
+    expect((await first).status).toBe(200);
+    expect(deposits).toHaveLength(1);
   });
 
   it("refuses to fund an escrowed or accepted bounty", async () => {

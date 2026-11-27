@@ -34,7 +34,7 @@ const fetchReturning = (res: Response | (() => Promise<Response>)) =>
 describe("challenges", () => {
   it("challenge_single_use_and_expiry", () => {
     let now = 1_000;
-    const store = new ChallengeStore(5 * 60_000, () => now);
+    const store = new ChallengeStore("board.test", 5 * 60_000, () => now);
     const a = store.issue("acct-1");
     expect(store.consume("acct-2", a.nonce)).toBe(false); // bound to its subject
     expect(store.consume("acct-1", a.nonce)).toBe(true);
@@ -45,22 +45,23 @@ describe("challenges", () => {
     expect(store.consume("acct-1", b.nonce)).toBe(false); // expired
   });
 
-  it("puts the nonce in a domain-separated message", () => {
-    expect(challengeMessage("abc")).toBe("Deplace/v1/login:abc");
+  it("puts the site and the nonce in a domain-separated message", () => {
+    expect(challengeMessage("deplace.space", "abc")).toBe("Deplace/v1/login: sign in to deplace.space (this is not a transaction). Nonce: abc");
+    expect(new ChallengeStore("deplace.space").issue("acct-1").message).toMatch(/^Deplace\/v1\/login: sign in to deplace\.space .*Nonce: [0-9a-f]{32}$/);
   });
 });
 
 describe("accounts", () => {
   it("verifies a signature made by the account's key", async () => {
     const alice = testAccount(1);
-    const msg = challengeMessage("n1");
+    const msg = challengeMessage("board.test", "n1");
     expect(await verifyAccountSignature(lookupOf(alice), alice.address, msg, await alice.sign(msg))).toBe(true);
   });
 
   it("rejects a signature by another account's key, and malformed signatures, without throwing", async () => {
     const alice = testAccount(1);
     const mallory = testAccount(2);
-    const msg = challengeMessage("n1");
+    const msg = challengeMessage("board.test", "n1");
     const lookup = lookupOf(alice, mallory);
     expect(await verifyAccountSignature(lookup, alice.address, msg, await mallory.sign(msg))).toBe(false);
     expect(await verifyAccountSignature(lookup, alice.address, msg, { 5: { 0: "00" } })).toBe(false);
@@ -128,7 +129,7 @@ describe("badge check", () => {
 
 describe("verifyAgent", () => {
   const nonce = "n-42";
-  const msg = challengeMessage(nonce);
+  const msg = challengeMessage("board.test", nonce);
 
   it("accepts the agent wallet's signature and pays that wallet", async () => {
     const owner = testAccount(1);

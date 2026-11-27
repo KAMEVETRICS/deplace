@@ -41,102 +41,119 @@ function bountyId(req: Request): bigint {
  */
 export function x402Router(service: BoardService, gw: X402Gateway, ops: PaymentOps): Router {
   const r = Router();
+  // Bounties with a payment being settled right now. Without this, two paid requests for one
+  // bounty that arrive together both pass the checks and both settle: the poster pays twice.
+  const settling = new Set<bigint>();
+  const oneAtATime = async (id: bigint, paying: boolean, run: () => Promise<void>) => {
+    if (!paying) return run();
+    if (settling.has(id)) throw new BoardError(409, `a payment for bounty ${id} is already being settled; try again in a moment`, { retryable: true });
+    settling.add(id);
+    try {
+      await run();
+    } finally {
+      settling.delete(id);
+    }
+  };
 
   r.get("/bounties/:id/work", async (req, res) => {
     const who = service.session(req.header("authorization"));
     const id = bountyId(req);
-    const b = await service.live(id);
-    if (b.poster !== who.account) throw new BoardError(403, "only the bounty's poster can fetch the work");
-    const items = await service.releasableWork(b);
+    await oneAtATime(id, req.header("payment-signature") !== undefined, async () => {
+      const b = await service.live(id);
+      if (b.poster !== who.account) throw new BoardError(403, "only the bounty's poster can fetch the work");
+      const items = await service.releasableWork(b);
 
-    const owed = b.funding.type === "NotFunded" && b.status.type !== "Paid";
-    if (!owed) {
-      res.json({ bountyId: id, items });
-      return;
-    }
-    // A payment already settled for this bounty (recording it failed earlier): record it now and
-    // release the work. Never issue new payment terms while it exists.
-    const earlier = service.settledPayment(id);
-    if (earlier) {
+      const owed = b.funding.type === "NotFunded" && b.status.type !== "Paid";
+      if (!owed) {
+        res.json({ bountyId: id, items });
+        return;
+      }
+      // A payment already settled for this bounty (recording it failed earlier): record it now and
+      // release the work. Never issue new payment terms while it exists.
+      const earlier = service.settledPayment(id);
+      if (earlier) {
+        let recordTx: string | null = null;
+        let recordError: string | null = null;
+        if (!earlier.recorded) {
+          try {
+            recordTx = await ops.recordPayout(id, [{ to: earlier.payee, amount: earlier.amount, tx: earlier.tx }]);
+            service.markPaymentRecorded(id);
+            await service.refresh(id);
+          } catch (e) {
+            recordError = (e as Error).message;
+          }
+        }
+        res.json({ bountyId: id, items, payment: { tx: earlier.tx, link: txLink(earlier.tx), recordTx, recordError } });
+        return;
+      }
+
+      const payee = await service.payee(b);
+      if (!payee) throw new BoardError(409, `nothing is owed for bounty ${id}`);
+      const terms = await gw.paymentRequired({
+        payTo: payee,
+        amount: b.reward,
+        resource: `${ops.publicBaseUrl}/bounties/${id}/work`,
+        description: `Reward for bounty ${id}, paid to the worker; unlocks the delivered work`,
+      });
+      const payment = req.header("payment-signature");
+      if (!payment) {
+        res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
+        return;
+      }
+      const settled = await gw.settle(payment, terms.requirements, b.poster);
+      if (!settled.ok) {
+        res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
+        return;
+      }
+      // The worker is paid at this point. Store that first; recording it on chain is the
+      // operator's job, retried by the server loop if it fails. The work is released either way.
+      service.rememberSettledPayment(id, { tx: settled.tx, payee, amount: b.reward });
       let recordTx: string | null = null;
       let recordError: string | null = null;
-      if (!earlier.recorded) {
-        try {
-          recordTx = await ops.recordPayout(id, [{ to: earlier.payee, amount: earlier.amount, tx: earlier.tx }]);
-          service.markPaymentRecorded(id);
-          await service.refresh(id);
-        } catch (e) {
-          recordError = (e as Error).message;
-        }
+      try {
+        recordTx = await ops.recordPayout(id, [{ to: payee, amount: b.reward, tx: settled.tx }]);
+        service.markPaymentRecorded(id);
+        await service.refresh(id);
+      } catch (e) {
+        recordError = (e as Error).message;
+        console.error(`[x402] bounty ${id}: payment ${settled.tx} settled but recording failed:`, e);
       }
-      res.json({ bountyId: id, items, payment: { tx: earlier.tx, link: txLink(earlier.tx), recordTx, recordError } });
-      return;
-    }
-
-    const payee = await service.payee(b);
-    if (!payee) throw new BoardError(409, `nothing is owed for bounty ${id}`);
-    const terms = await gw.paymentRequired({
-      payTo: payee,
-      amount: b.reward,
-      resource: `${ops.publicBaseUrl}/bounties/${id}/work`,
-      description: `Reward for bounty ${id}, paid to the worker; unlocks the delivered work`,
-    });
-    const payment = req.header("payment-signature");
-    if (!payment) {
-      res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
-      return;
-    }
-    const settled = await gw.settle(payment, terms.requirements, b.poster);
-    if (!settled.ok) {
-      res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
-      return;
-    }
-    // The worker is paid at this point. Store that first; recording it on chain is the
-    // operator's job, retried by the server loop if it fails. The work is released either way.
-    service.rememberSettledPayment(id, { tx: settled.tx, payee, amount: b.reward });
-    let recordTx: string | null = null;
-    let recordError: string | null = null;
-    try {
-      recordTx = await ops.recordPayout(id, [{ to: payee, amount: b.reward, tx: settled.tx }]);
-      service.markPaymentRecorded(id);
-      await service.refresh(id);
-    } catch (e) {
-      recordError = (e as Error).message;
-      console.error(`[x402] bounty ${id}: payment ${settled.tx} settled but recording failed:`, e);
-    }
-    res.set("PAYMENT-RESPONSE", settled.responseHeader).json({
-      bountyId: id,
-      items,
-      payment: { tx: settled.tx, link: txLink(settled.tx), payer: settled.payer, recordTx, recordError },
+      res.set("PAYMENT-RESPONSE", settled.responseHeader).json({
+        bountyId: id,
+        items,
+        payment: { tx: settled.tx, link: txLink(settled.tx), payer: settled.payer, recordTx, recordError },
+      });
     });
   });
 
   r.post("/bounties/:id/fund", async (req, res) => {
     const who = service.session(req.header("authorization"));
     const id = bountyId(req);
-    const b = await service.live(id);
-    if (b.poster !== who.account) throw new BoardError(403, "only the bounty's poster can fund it");
-    if (b.funding.type !== "NotFunded") throw new BoardError(409, `bounty ${id} is already escrowed`);
-    if (!["Open", "Claimed", "Submitted"].includes(b.status.type)) throw new BoardError(409, `bounty ${id} is ${b.status.type} and can no longer be funded`);
-    const terms = await gw.paymentRequired({
-      payTo: service.config.escrowAccount,
-      amount: b.reward,
-      resource: `${ops.publicBaseUrl}/bounties/${id}/fund`,
-      description: `Escrow the reward for bounty ${id} (custodial escrow account)`,
+    await oneAtATime(id, req.header("payment-signature") !== undefined, async () => {
+      const b = await service.live(id);
+      if (b.poster !== who.account) throw new BoardError(403, "only the bounty's poster can fund it");
+      if (b.funding.type !== "NotFunded") throw new BoardError(409, `bounty ${id} is already escrowed`);
+      if (!["Open", "Claimed", "Submitted"].includes(b.status.type)) throw new BoardError(409, `bounty ${id} is ${b.status.type} and can no longer be funded`);
+      const terms = await gw.paymentRequired({
+        payTo: service.config.escrowAccount,
+        amount: b.reward,
+        resource: `${ops.publicBaseUrl}/bounties/${id}/fund`,
+        description: `Escrow the reward for bounty ${id} (custodial escrow account)`,
+      });
+      const payment = req.header("payment-signature");
+      if (!payment) {
+        res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
+        return;
+      }
+      const settled = await gw.settle(payment, terms.requirements, b.poster);
+      if (!settled.ok) {
+        res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
+        return;
+      }
+      const funded = await ops.noteDeposit(settled.tx, { bountyId: id });
+      await service.refresh(id);
+      res.set("PAYMENT-RESPONSE", settled.responseHeader).json({ bountyId: id, funded, payment: { tx: settled.tx, link: txLink(settled.tx) } });
     });
-    const payment = req.header("payment-signature");
-    if (!payment) {
-      res.status(402).set("PAYMENT-REQUIRED", terms.header).json(terms.body);
-      return;
-    }
-    const settled = await gw.settle(payment, terms.requirements, b.poster);
-    if (!settled.ok) {
-      res.status(402).set("PAYMENT-REQUIRED", terms.header).json({ ...(terms.body as object), error: settled.error });
-      return;
-    }
-    const funded = await ops.noteDeposit(settled.tx, { bountyId: id });
-    await service.refresh(id);
-    res.set("PAYMENT-RESPONSE", settled.responseHeader).json({ bountyId: id, funded, payment: { tx: settled.tx, link: txLink(settled.tx) } });
   });
 
   return r;

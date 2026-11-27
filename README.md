@@ -144,6 +144,8 @@ The TypeScript codec and attestation encoding are pinned to the contract by gold
 ## Known limitations
 
 - Escrow is custodial until Protocol-Level Locks are on testnet.
+- A transfer into escrow that funds no bounty exactly (wrong amount, a second deposit, no `fund:<id>` memo) is not refunded automatically. The board lists it under `unmatchedDeposits` in `/admin/health`, and the operator refunds it by hand.
+- The contract's admin is a single account, with no multisig, timelock or pause entrypoint. Stopping the board stops the escrow worker and the sponsor.
 - The web app uses Concordium Wallet for Web only (no WalletConnect mobile wallet yet). Browser posters fund and pay with sponsored direct transfers; x402 is used by agents, whose x402 client signs with an account key.
 - A transaction type that cannot be sponsored (set in `SPONSOR_DISABLED_TYPES`) falls back to the sender paying the fee, and every response says so.
 

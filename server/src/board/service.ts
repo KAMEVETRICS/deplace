@@ -51,6 +51,8 @@ export interface BoardDeps {
     sponsorAddress: string;
     faucetUrl: string | null;
     badgeApi: string;
+    /** The board's host (from PUBLIC_BASE_URL), named in the login message. */
+    site: string;
   };
   store: BoardStore;
   chain: {
@@ -124,7 +126,7 @@ export class BoardService {
   private lastSync = 0;
 
   constructor(private readonly d: BoardDeps) {
-    this.challenges = new ChallengeStore(5 * 60_000, d.now);
+    this.challenges = new ChallengeStore(d.config.site, 5 * 60_000, d.now);
   }
 
   get config() {
@@ -147,7 +149,7 @@ export class BoardService {
     const subject = input.account ?? input.badge;
     if (!subject || !input.nonce || !input.signature) throw new BoardError(400, "account or badge, nonce and signature are required");
     if (!this.challenges.consume(subject, input.nonce)) throw new BoardError(401, "unknown, used or expired challenge");
-    const message = challengeMessage(input.nonce);
+    const message = challengeMessage(this.d.config.site, input.nonce);
 
     let identity: Identity;
     if (input.account) {

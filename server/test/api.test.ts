@@ -73,6 +73,7 @@ function deps(): BoardDeps {
       sponsorAddress: SPONSOR,
       faucetUrl: "https://faucet.example",
       badgeApi: "https://badge.example",
+      site: "board.test",
     },
     store: new BoardStore(join(mkdtempSync(join(tmpdir(), "api-")), "b.db")),
     chain: {
@@ -171,7 +172,7 @@ describe("auth", () => {
 
   it("logs an agent in with its badge and the agent wallet's signature", async () => {
     const ch = await call("POST", "/auth/challenge", { badge: "JyP9Badge" });
-    expect(ch.body.message).toBe(challengeMessage(ch.body.nonce));
+    expect(ch.body.message).toBe(challengeMessage("board.test", ch.body.nonce));
     const r = await call("POST", "/auth/login", { badge: "JyP9Badge", nonce: ch.body.nonce, signature: await agentWallet.sign(ch.body.message) });
     expect(r.status).toBe(200);
     expect(r.body.identity).toMatchObject({ kind: "agent", account: agentWallet.address, tokenId: "9", badge: "JyP9Badge" });

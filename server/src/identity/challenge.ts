@@ -1,8 +1,11 @@
 import { randomBytes } from "node:crypto";
 
-/** The exact text a person or agent signs to prove control of an account. */
-export function challengeMessage(nonce: string): string {
-  return `Deplace/v1/login:${nonce}`;
+/**
+ * The exact text a person or agent signs to prove control of an account. It names the site, so
+ * a page elsewhere that asks for this signature shows the wallet's owner where it would sign in.
+ */
+export function challengeMessage(site: string, nonce: string): string {
+  return `Deplace/v1/login: sign in to ${site} (this is not a transaction). Nonce: ${nonce}`;
 }
 
 interface Pending {
@@ -18,6 +21,8 @@ export class ChallengeStore {
   private readonly pending = new Map<string, Pending>();
 
   constructor(
+    /** The board's host, such as deplace.space, as the signed message names it. */
+    private readonly site: string,
     private readonly ttlMs = 5 * 60_000,
     private readonly now: () => number = Date.now,
   ) {}
@@ -27,7 +32,7 @@ export class ChallengeStore {
     const nonce = randomBytes(16).toString("hex");
     const expiresAt = this.now() + this.ttlMs;
     this.pending.set(nonce, { subject, expiresAt });
-    return { nonce, message: challengeMessage(nonce), expiresAt };
+    return { nonce, message: challengeMessage(this.site, nonce), expiresAt };
   }
 
   /** True once for a live nonce issued to `subject`; false for unknown, reused, expired or foreign nonces. */

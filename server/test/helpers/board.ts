@@ -25,6 +25,7 @@ export function fakeBoard(accounts: TestAccount[], over: Partial<BoardDeps> = {}
       sponsorAddress: "sponsor",
       faucetUrl: "https://faucet.example",
       badgeApi: "https://badge.example",
+      site: "board.test",
     },
     store,
     chain: {

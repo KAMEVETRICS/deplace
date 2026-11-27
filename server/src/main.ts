@@ -125,6 +125,7 @@ service = new BoardService({
     sponsorAddress: sponsorWallet.address,
     faucetUrl: cfg.faucetUrl,
     badgeApi: cfg.badgeApi,
+    site: new URL(cfg.publicBaseUrl).host,
   },
   store,
   chain: contract,

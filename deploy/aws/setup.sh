@@ -92,9 +92,20 @@ systemctl daemon-reload
 systemctl enable deplace
 
 # Access log (client IP, path, status, user agent) goes to the journal: journalctl -u caddy
+# Headers: HTTPS only, no framing (clickjacking), no MIME sniffing. The policy leaves scripts
+# alone so the Concordium wallet extension can still inject its API into the page.
 cat > /etc/caddy/Caddyfile <<EOF
 $HOST {
 	log
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
 	reverse_proxy 127.0.0.1:8787
 }
 EOF
